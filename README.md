@@ -32,6 +32,19 @@ Press `Ctrl + C` in the terminal to stop the preview.
 
 ## Demo form submissions
 
-Submissions are saved to `data/demo-requests.json`, which is created on the first submission. This file is kept out of git because it holds people's contact info.
+Each demo request is emailed to you through [Resend](https://resend.com) (free for up to 3,000 emails a month). Hitting **Reply** on that email goes straight to the person who filled out the form.
 
-**This only works on your own computer.** Vercel doesn't let websites save files, so before launch the form needs to send an email instead (for example with [Resend](https://resend.com)). The code to change is `app/api/demo-request/route.ts`.
+On your own computer, if Resend isn't set up, requests are saved to `data/demo-requests.json` instead (kept out of git because it holds contact info).
+
+### Setting up Resend
+
+1. Sign up at resend.com **using the email address where you want demo requests delivered**.
+2. Go to **API Keys → Create API Key**, and copy the key (starts with `re_`).
+3. In Vercel: **Project → Settings → Environment Variables**, add:
+   - `RESEND_API_KEY` = the key from step 2
+   - `DEMO_NOTIFY_EMAIL` = that same email address
+4. Redeploy (Vercel → Deployments → ⋯ → Redeploy) and send yourself a test request.
+
+Until you verify a domain with Resend, emails come from `onboarding@resend.dev` and can only be delivered to the address you signed up with. Once your domain is live, add it under **Domains** in Resend (it gives you DNS records to copy, same as Vercel), then set `DEMO_FROM_EMAIL` to something like `DesertDesk <demos@yourdomain.com>`. After that you can send to any address, including several (comma-separated).
+
+See `.env.example` for all settings. The code lives in `app/api/demo-request/route.ts`.
