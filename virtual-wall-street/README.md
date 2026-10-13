@@ -75,8 +75,10 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 
 | Key | Does |
 | --- | --- |
+| ↑ / ↓ | Walk forward / back, staying at the same height |
+| ← / → | Turn left / right |
 | Click the city | Look around with the mouse (Esc gets the cursor back). You can also drag with the mouse button held |
-| W A S D or arrows | Fly forward, left, back, right, in the direction you're looking |
+| W A S D | Fly forward, left, back, right, in the direction you're looking (including up or down) |
 | Space or E / Q or C | Fly up / down |
 | Shift | Fly faster |
 | 1-6 | Fly to that bot's tower |
@@ -84,9 +86,9 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 | Tab | Fly to the next building |
 | R | Circle around the building you're at, to see it from behind |
 | P | Pause / resume trading |
-| H | Hide / show the controls box |
+| H | Hide / show the key legend at the bottom of the screen |
 
-You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
+The arrow keys alone are enough to get around; the legend along the bottom of the screen lists every key. You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
 
 The 3D view runs on `http://localhost:8765` and only your own computer can reach it. Three.js (the 3D library, MIT license) is included in `web/vendor`, so nothing extra needs installing or downloading. The 2D window (`python main.py`) still works too.
 

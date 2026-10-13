@@ -578,7 +578,7 @@ window.addEventListener('keydown', (e) => {
   if (/^Digit[0-6]$/.test(e.code)) { const n = +e.code.slice(5); travelTo(n === 0 ? 6 : n - 1); return; }
   if (e.code === 'KeyR') { toggleOrbit(); return; }
   if (e.code === 'KeyP') { togglePause(); return; }
-  if (e.code === 'KeyH') { document.getElementById('help').classList.toggle('hidden'); return; }
+  if (e.code === 'KeyH') { document.getElementById('legend').classList.toggle('hidden'); return; }
   if (MOVE_KEYS.has(e.code)) {
     e.preventDefault();
     nav.keys.add(e.code);
@@ -632,10 +632,17 @@ function updateNav(dt) {
     const fwd = new THREE.Vector3(-Math.sin(nav.yaw) * Math.cos(nav.pitch), Math.sin(nav.pitch), -Math.cos(nav.yaw) * Math.cos(nav.pitch));
     const right = new THREE.Vector3(Math.cos(nav.yaw), 0, -Math.sin(nav.yaw));
     const want = new THREE.Vector3();
-    if (k.has('KeyW') || k.has('ArrowUp')) want.add(fwd);
-    if (k.has('KeyS') || k.has('ArrowDown')) want.sub(fwd);
-    if (k.has('KeyD') || k.has('ArrowRight')) want.add(right);
-    if (k.has('KeyA') || k.has('ArrowLeft')) want.sub(right);
+    // Arrow keys: walk forward/back at the current height and turn left/right (keyboard only).
+    const level = new THREE.Vector3(-Math.sin(nav.yaw), 0, -Math.cos(nav.yaw));
+    if (k.has('ArrowLeft')) nav.yaw += dt * 1.7;
+    if (k.has('ArrowRight')) nav.yaw -= dt * 1.7;
+    if (k.has('ArrowUp')) want.add(level);
+    if (k.has('ArrowDown')) want.sub(level);
+    // W A S D: fly wherever you're looking (up and down included).
+    if (k.has('KeyW')) want.add(fwd);
+    if (k.has('KeyS')) want.sub(fwd);
+    if (k.has('KeyD')) want.add(right);
+    if (k.has('KeyA')) want.sub(right);
     if (k.has('Space') || k.has('KeyE')) want.y += 1;
     if (k.has('KeyQ') || k.has('KeyC')) want.y -= 1;
     if (want.lengthSq() > 0) want.normalize().multiplyScalar(speed);

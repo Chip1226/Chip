@@ -37,12 +37,17 @@
   #buildings .key { color: var(--muted); font-size: 11px; width: 14px; }
   #buildings .name { flex: 1; }
   #buildings .pnl { font-variant-numeric: tabular-nums; }
-  #feed { bottom: 12px; left: 12px; width: 340px; padding: 8px 12px; }
+  #feed { bottom: 96px; left: 12px; width: 340px; padding: 8px 12px; }
   #feed .title { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; margin-bottom: 4px; }
   #feed div.item { font-size: 13px; animation: fadein 0.4s; }
-  #help { bottom: 12px; right: 12px; width: 250px; font-size: 12px; color: var(--muted); }
-  #help b { color: var(--text); font-weight: 600; }
-  #help.hidden .body { display: none; }
+  #legend { bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 24px);
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; padding: 9px 16px;
+    font-size: 12.5px; color: var(--muted); }
+  #legend .item { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  #legend kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 5px; text-align: center;
+    font: 600 12px/1.4 system-ui, sans-serif; color: var(--text); background: rgba(120, 160, 255, 0.14);
+    border: 1px solid rgba(120, 160, 255, 0.35); border-bottom-width: 2px; }
+  #legend.hidden .item:not(.always) { display: none; }
   #hint { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
     font-size: 15px; transition: opacity 0.4s; }
   #crosshair { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
@@ -51,7 +56,7 @@
   .up { color: var(--green); } .down { color: var(--red); }
   .call { color: var(--cyan); } .put { color: var(--magenta); } .info { color: var(--yellow); }
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
-  @media (max-width: 900px) { #buildings, #help { display: none; } #status { max-width: 60vw; } }
+  @media (max-width: 900px) { #buildings { display: none; } #status { max-width: 60vw; } #feed { display: none; } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -70,18 +75,21 @@
 <div id="total" class="panel"><div class="label">TOTAL P/L - ALL BOTS</div><div class="value" id="totalValue">--</div></div>
 <div id="buildings" class="panel"></div>
 <div id="feed" class="panel"><div class="title">TRADES</div><div id="feedItems"><div class="item" style="color:var(--muted)">No trades yet</div></div></div>
-<div id="help" class="panel">
-  <div><b>Controls</b> &nbsp;(H to hide)</div>
-  <div class="body">
-    <div><b>Click</b> the city to look around with the mouse, <b>Esc</b> to get the cursor back</div>
-    <div><b>W A S D</b> fly &nbsp; <b>Space</b> / <b>E</b> up &nbsp; <b>Q</b> / <b>C</b> down</div>
-    <div><b>Shift</b> fly faster</div>
-    <div><b>1-6</b> travel to a bot &nbsp; <b>0</b> the Exchange &nbsp; <b>Tab</b> next</div>
-    <div><b>R</b> circle around the building you're at</div>
-    <div><b>P</b> pause / resume trading</div>
-  </div>
+<div id="legend" class="panel">
+  <span class="item"><kbd>&uarr;</kbd><kbd>&darr;</kbd> walk</span>
+  <span class="item"><kbd>&larr;</kbd><kbd>&rarr;</kbd> turn</span>
+  <span class="item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly where you look</span>
+  <span class="item"><kbd>Space</kbd> up <kbd>Q</kbd> down</span>
+  <span class="item"><kbd>Shift</kbd> faster</span>
+  <span class="item"><kbd>Click</kbd> mouse look <kbd>Esc</kbd> release</span>
+  <span class="item"><kbd>1</kbd>-<kbd>6</kbd> bot towers</span>
+  <span class="item"><kbd>0</kbd> Exchange</span>
+  <span class="item"><kbd>Tab</kbd> next building</span>
+  <span class="item"><kbd>R</kbd> circle building</span>
+  <span class="item"><kbd>P</kbd> pause trading</span>
+  <span class="item always"><kbd>H</kbd> hide keys</span>
 </div>
-<div id="hint" class="panel">Click to look around<br><span style="color:var(--muted);font-size:13px">or press 0-6 to travel</span></div>
+<div id="hint" class="panel">Use the arrow keys to walk and turn<br><span style="color:var(--muted);font-size:13px">click to look around with the mouse, or press 0-6 to travel</span></div>
 <div id="offline" class="panel">Lost connection to the trading engine. Is <b>python city.py</b> still running?</div>
 <div id="crosshair"></div>
 <script type="module" src="./city.js"></script>
