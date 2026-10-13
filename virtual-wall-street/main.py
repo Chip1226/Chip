@@ -6,6 +6,7 @@ import sys
 SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 600
 FPS = 60
 BOT_COUNT = 5
+AUTO_TRADE_INTERVAL_MS = 1500  # how often bots trade on their own
 
 # Colors
 WHITE = (255, 255, 255)
@@ -84,6 +85,11 @@ spacing = SCREEN_WIDTH // (BOT_COUNT + 1)
 for i in range(BOT_COUNT):
     bots.append(TradingBot(spacing * (i + 1) - 40, SCREEN_HEIGHT // 2, f"Bot{i+1}"))
 
+# --- AUTO TRADING ---
+AUTO_TRADE_EVENT = pygame.USEREVENT + 1
+auto_trading = True
+pygame.time.set_timer(AUTO_TRADE_EVENT, AUTO_TRADE_INTERVAL_MS)
+
 # --- MAIN LOOP ---
 while True:
     for event in pygame.event.get():
@@ -95,6 +101,13 @@ while True:
                 # Trigger trades for all bots
                 for bot in bots:
                     bot.trade()
+            elif event.key == pygame.K_a:
+                # Toggle auto trading on/off
+                auto_trading = not auto_trading
+                pygame.time.set_timer(AUTO_TRADE_EVENT, AUTO_TRADE_INTERVAL_MS if auto_trading else 0)
+        elif event.type == AUTO_TRADE_EVENT:
+            for bot in bots:
+                bot.trade()
 
     # Update
     for bot in bots:
@@ -106,6 +119,9 @@ while True:
     total_color = GREEN if total_pnl >= 0 else RED
     total_text = font.render(f"TOTAL P/L: {total_pnl:+.2f}", True, total_color)
     screen.blit(total_text, (SCREEN_WIDTH // 2 - total_text.get_width() // 2, 50))
+    status = "AUTO TRADING: ON" if auto_trading else "AUTO TRADING: OFF"
+    status_text = font.render(f"{status}  (A to toggle, SPACE to trade now)", True, YELLOW)
+    screen.blit(status_text, (SCREEN_WIDTH // 2 - status_text.get_width() // 2, 85))
 
     for bot in bots:
         bot.draw(screen)
