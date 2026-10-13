@@ -1,92 +1,301 @@
 """Run with:  python -m unittest test_trading.py"""
 
+import os
+import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from unittest import mock
 
 import config
 from engine import AlpacaMarket, Bot, DemoMarket, Engine, make_bots
-from strategies import breakout, buy_and_hold, mean_reversion, momentum, rsi, sma_crossover
+from options import Contract, black_scholes, occ_symbol, parse_occ, pick_single, pick_spread, round_price
+from strategies import mean_reversion, momentum, rsi, sma_crossover
+
+TODAY = date(2026, 10, 13)  # a Tuesday
+EXP = TODAY + timedelta(days=17)
+UP = [100 + i * 0.5 for i in range(60)]
+DOWN = [130 - i * 0.5 for i in range(60)]
+# Same shapes as one-minute closes, for the engine (which reads every 15th close)
+UP_MIN = [100 + i * 0.5 / 15 for i in range(60 * 15)]
+DOWN_MIN = [130 - i * 0.5 / 15 for i in range(60 * 15)]
 
 
-class StrategyTests(unittest.TestCase):
-    def test_not_enough_data_does_nothing(self):
-        for strategy in (sma_crossover, momentum, mean_reversion, breakout):
-            self.assertIsNone(strategy([100.0] * 5, False))
+class SignalTests(unittest.TestCase):
+    def test_not_enough_data(self):
+        for signal in (sma_crossover, momentum, mean_reversion):
+            self.assertIsNone(signal([100.0] * 5))
 
-    def test_sma_crossover(self):
-        rising = [100 + i for i in range(40)]
-        falling = [140 - i for i in range(40)]
-        self.assertEqual(sma_crossover(rising, False), "buy")
-        self.assertIsNone(sma_crossover(rising, True))
-        self.assertEqual(sma_crossover(falling, True), "sell")
-
-    def test_momentum(self):
-        self.assertEqual(momentum([100 + i for i in range(30)], False), "buy")
-        self.assertEqual(momentum([130 - i for i in range(30)], True), "sell")
-
-    def test_mean_reversion(self):
-        self.assertLess(rsi([100 - i for i in range(20)]), 30)
-        self.assertEqual(mean_reversion([100 - i for i in range(20)], False), "buy")
-        self.assertEqual(mean_reversion([100 + i for i in range(20)], True), "sell")
-
-    def test_breakout(self):
-        self.assertEqual(breakout([100.0] * 25 + [101.0], False), "buy")
-        self.assertEqual(breakout([100.0] * 25 + [99.0], True), "sell")
-
-    def test_buy_and_hold_never_sells(self):
-        self.assertEqual(buy_and_hold([100.0], False), "buy")
-        self.assertIsNone(buy_and_hold([1.0], True))
+    def test_directions(self):
+        self.assertEqual(sma_crossover(UP), "call")
+        self.assertEqual(sma_crossover(DOWN), "put")
+        self.assertEqual(momentum(UP), "call")
+        self.assertEqual(momentum(DOWN), "put")
+        self.assertIsNone(momentum([100.0] * 30))
+        self.assertLess(rsi(DOWN), 30)
+        self.assertEqual(mean_reversion(DOWN), "call")  # bets on a bounce
+        self.assertEqual(mean_reversion(UP), "put")
 
 
-class BotTests(unittest.TestCase):
-    def test_round_trip_profit(self):
-        bot = Bot("Test", "SPY", "momentum")
-        self.assertIsNone(bot.record_fill("buy", 10, 100))
-        bot.price = 110
-        self.assertAlmostEqual(bot.pnl, 100)
-        self.assertAlmostEqual(bot.record_fill("sell", 10, 110), 100)
-        self.assertFalse(bot.holding)
-        self.assertAlmostEqual(bot.pnl, 100)
+class OptionMathTests(unittest.TestCase):
+    def test_occ_round_trip(self):
+        symbol = occ_symbol("QQQ", date(2026, 10, 30), "call", 512.5)
+        self.assertEqual(symbol, "QQQ261030C00512500")
+        self.assertEqual(parse_occ(symbol), ("QQQ", date(2026, 10, 30), "call", 512.5))
 
-    def test_partial_sell_keeps_cost_basis_proportional(self):
-        bot = Bot("Test", "SPY", "momentum")
-        bot.record_fill("buy", 10, 100)
-        self.assertAlmostEqual(bot.record_fill("sell", 4, 90), -40)
-        self.assertAlmostEqual(bot.cost_basis, 600)
+    def test_black_scholes_sanity(self):
+        call, call_delta = black_scholes("call", 100, 100, 30 / 365, 0.2)
+        put, put_delta = black_scholes("put", 100, 100, 30 / 365, 0.2)
+        self.assertAlmostEqual(call_delta, 0.54, places=1)
+        self.assertAlmostEqual(put_delta, -0.46, places=1)
+        self.assertGreater(call, put)  # put-call parity with positive rates
+
+    def test_round_price(self):
+        self.assertEqual(round_price(5.123, "QQQ"), 5.12)
+        self.assertEqual(round_price(5.12, "AMD"), 5.10)
+        self.assertEqual(round_price(2.123, "AMD"), 2.12)
 
 
-class DemoMarketTests(unittest.TestCase):
-    def test_runs_and_pnl_matches_trades(self):
+def contract(strike, mid, delta, kind="call", exp=EXP, spread=0.10):
+    return Contract(occ_symbol("QQQ", exp, kind, strike), "QQQ", exp, kind, strike,
+                    mid - spread / 2, mid + spread / 2, delta)
+
+
+CHAIN = [contract(495, 9.0, 0.62), contract(500, 6.0, 0.51), contract(502, 5.2, 0.47),
+         contract(505, 4.0, 0.40), contract(510, 2.0, 0.25)]
+
+
+class PickTests(unittest.TestCase):
+    def test_single_prefers_half_delta(self):
+        pick, why = pick_single(CHAIN, TODAY, 0.40, 0.60, 1000)
+        self.assertEqual(pick.strike, 500)
+
+    def test_single_too_expensive(self):
+        pick, why = pick_single(CHAIN, TODAY, 0.40, 0.60, 300)
+        self.assertIsNone(pick)
+        self.assertIn("$400", why)
+
+    def test_single_bent_rules_finds_cheap_contract(self):
+        pick, _ = pick_single(CHAIN, TODAY, 0.20, 0.60, 300)
+        self.assertEqual(pick.strike, 510)
+
+    def test_spread_fits_small_budget(self):
+        (long, short), why = pick_spread(CHAIN, TODAY, 0.40, 0.60, [5, 2], 250)
+        self.assertEqual((long.strike, short.strike), (500, 505))  # $200 debit, max profit $300
+
+    def test_spread_falls_back_to_narrower_width(self):
+        (long, short), _ = pick_spread(CHAIN, TODAY, 0.40, 0.60, [5, 2], 100)
+        self.assertEqual((long.strike, short.strike), (500, 502))  # $80 debit
+
+    def test_put_spread_goes_down(self):
+        puts = [contract(500, 6.0, -0.50, "put"), contract(495, 4.0, -0.38, "put")]
+        (long, short), _ = pick_spread(puts, TODAY, 0.40, 0.60, [5], 300)
+        self.assertEqual((long.strike, short.strike), (500, 495))
+
+
+class FakeMarket:
+    """Scripted market: you set the signal prices and option quotes."""
+
+    name = "fake"
+    interval = 0
+
+    def __init__(self, closes, chain):
+        self.closes_ = closes
+        self.chain_ = chain
+        self.clock = datetime(2026, 10, 13, 11, 0)
+        self.orders = []
+        self.fill = True
+
+    def now(self):
+        return self.clock
+
+    def closes(self, symbol):
+        return self.closes_
+
+    def chain(self, symbol, kind, min_dte, max_dte, price):
+        return [c for c in self.chain_ if c.kind == kind]
+
+    def quotes(self, symbols):
+        by_symbol = {c.symbol: (c.bid, c.ask) for c in self.chain_}
+        return {s: by_symbol[s] for s in symbols if s in by_symbol}
+
+    def submit(self, bot, legs, qty, limit, opening):
+        self.orders.append((legs, qty, limit, opening))
+        return (qty, limit) if self.fill else (0, None)
+
+    def set_mid(self, strike, mid):
+        for c in self.chain_:
+            if c.strike == strike:
+                c.bid, c.ask = mid - 0.05, mid + 0.05
+
+
+def spread_bot(**extra):
+    return Bot({"name": "T", "symbol": "QQQ", "signal": "momentum", "style": "spread",
+                "widths": [5], "budget": 300, "risk_pct": 0.8, "max_loss_pct": 1.0, **extra})
+
+
+class EngineRuleTests(unittest.TestCase):
+    def setUp(self):
+        self.market = FakeMarket(UP_MIN, [contract(c.strike, c.mid, c.delta) for c in CHAIN])
+        self.bot = spread_bot()
+        self.engine = Engine(self.market, [self.bot])
+
+    def test_opens_spread_at_mid_with_limit(self):
+        self.engine.trade_all()
+        legs, qty, limit, opening = self.market.orders[0]
+        self.assertTrue(opening)
+        self.assertEqual([side for _, side in legs], ["long", "short"])
+        self.assertEqual((qty, limit), (1, 2.0))
+        self.assertEqual(self.bot.cash, 100)
+        self.assertEqual(self.engine.events.get_nowait()[2], "call")
+
+    def test_take_profit(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 8.0)  # spread worth 8 - 4 = 4.00, +100%
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+        self.assertAlmostEqual(self.bot.pnl, 200)
+        self.assertEqual(self.bot.wins, 1)
+
+    def test_stop_loss(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 5.0)  # spread worth 1.00, -50%
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+        self.assertAlmostEqual(self.bot.pnl, -100)
+
+    def test_signal_flip_exits(self):
+        self.engine.trade_all()
+        self.market.closes_ = DOWN_MIN
+        self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position, "one flip isn't enough")
+        self.market.clock += timedelta(minutes=119)
+        self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position)
+        self.market.clock += timedelta(minutes=1)  # opposite signal held for 2 hours
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+        self.assertIn("SIGNAL FLIP", list(self.engine.events.queue)[-1][1])
+
+    def test_cooldown_blocks_reentry(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 8.0)
+        self.engine.trade_all()
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+        self.market.clock += timedelta(minutes=31)
+        self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position)
+
+    def test_unfilled_exit_gets_more_aggressive(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 8.0)
+        self.market.fill = False
+        self.engine.trade_all()
+        self.engine.trade_all()
+        first, second = self.market.orders[1][2], self.market.orders[2][2]
+        self.assertLess(second, first)  # closer to the bid each retry
+        self.assertIsNotNone(self.bot.position)
+
+    def test_no_entries_right_after_open(self):
+        self.market.clock = datetime(2026, 10, 13, 9, 35)
+        self.engine.trade_all()
+        self.assertEqual(self.market.orders, [])
+
+    def test_time_stop_before_expiration(self):
+        self.engine.trade_all()
+        self.market.clock += timedelta(days=12)  # 5 days left
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+
+    def test_earnings_blackout_and_forced_exit(self):
+        bot = spread_bot(earnings="2026-10-16", blackout_days=5)
+        engine = Engine(self.market, [bot])
+        engine.trade_all()
+        self.assertIsNone(bot.position)
+        self.assertEqual(bot.note, "earnings blackout")
+        # Holding into the day before the report forces an exit.
+        bot2 = spread_bot(earnings="2026-10-20", blackout_days=5)
+        engine2 = Engine(self.market, [bot2])
+        engine2.trade_all()
+        self.assertIsNotNone(bot2.position)
+        self.market.clock = datetime(2026, 10, 16, 11, 0)  # Friday before a Tuesday report: still holds
+        engine2.trade_all()
+        self.assertIsNotNone(bot2.position)
+        self.market.clock = datetime(2026, 10, 19, 11, 0)  # Monday, the day before; 11 days to expiration
+        engine2.trade_all()
+        self.assertIsNone(bot2.position)
+        self.assertIn("PRE-EARNINGS", list(engine2.events.queue)[-1][1])
+
+    def test_loss_limit_caps_trade_size(self):
+        bot = spread_bot(max_loss_pct=0.5)  # may lose at most $150
+        self.market.chain_.append(contract(503, 4.6, 0.44))
+        bot.spec["widths"] = [5, 3]
+        Engine(self.market, [bot]).trade_all()
+        self.assertLessEqual(bot.position["entry_cost"], 150)  # $200 spread skipped for a cheaper one
+
+    def test_loss_limit_stops_bot_even_if_every_trade_goes_to_zero(self):
+        bot = spread_bot(max_loss_pct=0.5, widths=[5, 2])
+        engine = Engine(self.market, [bot])
+        for _ in range(10):
+            engine.trade_all()
+            if bot.position:
+                for c in self.market.chain_:
+                    c.bid, c.ask = 0.0, 0.05  # wipe out: worth nothing
+                engine.trade_all()
+                self.market.chain_ = [contract(c.strike, c.mid, c.delta) for c in CHAIN]
+                self.market.clock += timedelta(hours=1)
+        self.assertGreaterEqual(bot.pnl, -150 - 1e-9)
+        self.assertIsNone(bot.position)
+        engine.trade_all()
+        self.assertIsNone(bot.position, "no trade fits in the room left")
+
+    def test_stopped_at_limit(self):
+        bot = spread_bot(max_loss_pct=0.5)
+        bot.cash = 150  # already lost $150 of $300
+        Engine(self.market, [bot]).trade_all()
+        self.assertIsNone(bot.position)
+        self.assertIn("STOPPED", bot.note)
+
+    def test_too_expensive_skips(self):
+        bot = spread_bot(budget=50)
+        Engine(self.market, [bot]).trade_all()
+        self.assertIsNone(bot.position)
+        self.assertIn("too pricey", bot.note)
+
+
+class DemoTests(unittest.TestCase):
+    def test_demo_runs_a_simulated_week(self):
         bots = make_bots()
-        market = DemoMarket(bots, seed=1)
+        market = DemoMarket(bots, seed=3, start=TODAY)
         engine = Engine(market, bots)
-        for _ in range(500):
+        for _ in range(390 * 5):
             market.step(engine)
-        self.assertFalse(engine.events.empty(), "bots should have traded")
+        events = list(engine.events.queue)
+        self.assertTrue(any(kind in ("call", "put") for _, _, kind in events), "bots should open trades")
+        self.assertTrue(any(kind in ("profit", "loss") for _, _, kind in events), "bots should close trades")
         for bot in bots:
-            self.assertIsNotNone(bot.price)
-        buy_and_hold_bot = next(b for b in bots if b.strategy_name == "buy_and_hold")
-        self.assertTrue(buy_and_hold_bot.holding)
-
-    def test_paused_does_not_trade(self):
-        bots = make_bots()
-        market = DemoMarket(bots, seed=1)
-        engine = Engine(market, bots)
-        engine.paused = True
-        for _ in range(100):
-            market.step(engine)
-        self.assertTrue(engine.events.empty())
+            self.assertGreaterEqual(bot.cash, -1e-9, f"{bot.name} spent money it doesn't have")
+        rules = next(b for b in bots if b.name == "By the Rules")
+        for _, text, kind in events:
+            if _ is rules and kind in ("call", "put"):
+                cost = float(text.split("-$")[1].replace(",", ""))
+                self.assertLessEqual(cost, 50000 * 0.03 * 1.5)
 
 
 class FakeAlpaca:
-    """Stands in for both Alpaca clients. Fills every market order instantly."""
+    """Stands in for the three Alpaca clients."""
 
-    def __init__(self, closes, is_open=True):
-        self.closes = closes
-        self.is_open = is_open
-        self.orders = []
+    def __init__(self, today):
+        self.today = today
         self.requests = []
+        self.is_open = True
+        exp = today + timedelta(days=17)
+        self.snapshots = {}
+        for strike, mid, delta in ((500, 6.0, 0.51), (505, 4.0, 0.40)):
+            self.snapshots[occ_symbol("QQQ", exp, "call", strike)] = SimpleNamespace(
+                latest_quote=SimpleNamespace(bid_price=mid - 0.05, ask_price=mid + 0.05),
+                greeks=SimpleNamespace(delta=delta), implied_volatility=0.2)
 
     def get_account(self):
         return SimpleNamespace(equity="100000.00")
@@ -95,70 +304,81 @@ class FakeAlpaca:
         return SimpleNamespace(is_open=self.is_open, next_open=datetime(2026, 10, 14, 9, 30))
 
     def get_stock_bars(self, request):
-        assert request.sort.value == "desc" and request.feed.value == "iex"
-        bars = [SimpleNamespace(close=c) for c in reversed(self.closes)]
+        bars = [SimpleNamespace(close=c) for c in reversed(UP_MIN)]
         return SimpleNamespace(data={request.symbol_or_symbols: bars})
 
-    def get_orders(self, request):
-        return sorted(self.orders, key=lambda o: o.submitted_at, reverse=True)[:request.limit]
+    def get_option_chain(self, request):
+        assert request.feed.value == "indicative"
+        return self.snapshots if request.type.value == "call" else {}
+
+    def get_option_latest_quote(self, request):
+        return {s: self.snapshots[s].latest_quote for s in request.symbol_or_symbols}
 
     def submit_order(self, request):
         self.requests.append(request)
-        price = self.closes[-1]
-        qty = request.notional / price if request.notional else request.qty
-        order = SimpleNamespace(
-            id=str(len(self.orders)), client_order_id=request.client_order_id, status="filled",
-            side=request.side, filled_qty=str(qty), filled_avg_price=str(price),
-            submitted_at=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=len(self.orders)))
-        self.orders.append(order)
-        return order
+        return SimpleNamespace(id="1", status="filled", filled_qty=str(request.qty),
+                               filled_avg_price=str(request.limit_price))
 
 
-class AlpacaMarketTests(unittest.TestCase):
+class AlpacaTests(unittest.TestCase):
     def setUp(self):
-        self.bots = [Bot("Buy&Hold", "SPY", "buy_and_hold"), Bot("Momentum", "SPY", "momentum")]
+        self.fake = FakeAlpaca(TODAY)
+        self.tmp = tempfile.TemporaryDirectory()
+        patcher = mock.patch.object(AlpacaMarket, "state_path", os.path.join(self.tmp.name, "state.json"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
 
-    def make(self, fake):
-        market = AlpacaMarket("PKTEST", "secret", trading=fake, data=fake)
-        return market, Engine(market, self.bots)
+    def make(self):
+        market = AlpacaMarket("PKTEST", "secret", trading=self.fake, stocks=self.fake, options=self.fake)
+        market.now = lambda: datetime(2026, 10, 13, 11, 0)
+        bot = spread_bot()
+        return market, bot, Engine(market, [bot])
 
     def test_refuses_live_keys(self):
         with self.assertRaises(ValueError):
-            AlpacaMarket("AKLIVEKEY", "secret", trading=object(), data=object())
+            AlpacaMarket("AKLIVEKEY", "secret", trading=object())
 
-    def test_buys_with_notional_and_tags_orders(self):
-        fake = FakeAlpaca([100 + i for i in range(100)])
-        market, engine = self.make(fake)
+    def test_spread_order_is_a_multileg_limit_debit(self):
+        market, bot, engine = self.make()
         market.step(engine)
-        self.assertEqual(len(fake.requests), 2)
-        for request, bot in zip(fake.requests, self.bots):
-            self.assertEqual(request.notional, config.TRADE_DOLLARS)
-            self.assertTrue(request.client_order_id.startswith(bot.order_prefix))
-            self.assertTrue(bot.holding)
-        self.assertEqual(engine.equity, 100000.0)
+        request = self.fake.requests[0]
+        self.assertEqual(request.order_class.value, "mleg")
+        self.assertEqual(request.type.value, "limit")
+        self.assertEqual(request.limit_price, 2.0)  # positive = debit
+        self.assertEqual([(l.side.value, l.position_intent.value) for l in request.legs],
+                         [("buy", "buy_to_open"), ("sell", "sell_to_open")])
+        self.assertEqual(bot.cash, 100)
 
-    def test_restart_rebuilds_positions_from_order_history(self):
-        fake = FakeAlpaca([100 + i for i in range(100)])
-        market, engine = self.make(fake)
+    def test_closing_is_a_credit_and_state_survives_restart(self):
+        market, bot, engine = self.make()
         market.step(engine)
-        # Prices drop: momentum sells, buy & hold keeps its shares.
-        fake.closes = [300 - i for i in range(100)]
-        fresh_bots = [Bot(b.name, b.symbol, b.strategy_name) for b in self.bots]
-        market2 = AlpacaMarket("PKTEST", "secret", trading=fake, data=fake)
-        engine2 = Engine(market2, fresh_bots)
+        engine.save()
+        market2, bot2, engine2 = self.make()  # restart: loads bot_state.json
+        self.assertEqual(bot2.position["label"], "500/505C 10/30")
+        quote = self.fake.snapshots[bot2.position["legs"][0][0]].latest_quote
+        quote.bid_price, quote.ask_price = 7.95, 8.05  # +100%
         market2.step(engine2)
-        hold, mom = fresh_bots
-        self.assertTrue(hold.holding)
-        self.assertFalse(mom.holding)
-        self.assertEqual(fake.requests[-1].side.value, "sell")
-        self.assertLessEqual(fake.requests[-1].qty, 1000 / 199)
-        self.assertEqual(len(fake.requests), 3, "buy & hold must not buy twice after a restart")
+        close = self.fake.requests[-1]
+        self.assertEqual(close.limit_price, -4.0)  # negative = credit
+        self.assertEqual([l.position_intent.value for l in close.legs], ["sell_to_close", "buy_to_close"])
+        self.assertIsNone(bot2.position)
+
+    def test_single_contract_order(self):
+        market, _, _ = self.make()
+        bot = Bot({"name": "S", "symbol": "QQQ", "signal": "momentum", "style": "single",
+                   "budget": 50000, "risk_pct": 0.03})
+        engine = Engine(market, [bot])
+        market.step(engine)
+        request = self.fake.requests[0]
+        self.assertEqual((request.side.value, request.position_intent.value), ("buy", "buy_to_open"))
+        self.assertEqual((request.qty, request.limit_price), (2, 6.0))  # 2 x $600 within $1,500
 
     def test_market_closed_places_no_orders(self):
-        fake = FakeAlpaca([100 + i for i in range(100)], is_open=False)
-        market, engine = self.make(fake)
+        self.fake.is_open = False
+        market, bot, engine = self.make()
         market.step(engine)
-        self.assertEqual(fake.requests, [])
+        self.assertEqual(self.fake.requests, [])
         self.assertIn("Market closed", engine.status)
 
 

@@ -1,23 +1,48 @@
 # Virtual Wall Street
 
-Five trading bots stand as buildings on screen. Each one runs a different trading strategy, trades on its own, and shows its profit or loss above its building. A building's windows light up while that bot holds shares and go dark while it's sitting in cash.
+Five trading bots stand as buildings on screen. Each one trades short-term **options** (calls and puts) on its own and shows its profit or loss above its building.
 
-| Bot | Strategy |
-| --- | --- |
-| Crossover | Buys when the 10-minute average price rises above the 30-minute average, sells when it falls below |
-| Momentum | Buys when the price is higher than 20 minutes ago, sells when it's lower |
-| Reversion | Buys after a sharp drop (RSI under 30), sells after a sharp rise (RSI over 70) |
-| Breakout | Buys when the price beats its 20-minute high, sells when it drops below its 10-minute low |
-| Buy&Hold | Buys once and never sells. **The benchmark:** a strategy that can't beat this isn't worth running |
+- When a bot completes a trade, a beam shoots out of its roof: **cyan** = bought a call, **magenta** = bought a put, **green** = closed at a profit, **red** = closed at a loss.
+- While a trade is open, the building's windows glow cyan (call) or magenta (put).
+- Under each building: the stock and style, what the bot is doing right now, its cash, and its win count.
 
-All five trade SPY (an S&P 500 index fund) by default so you're comparing strategies on the same stock. Change symbols, strategies or trade size in `config.py`.
+## The five bots
 
-**None of this is guaranteed to make money.** These are well-known textbook strategies, which means plenty of professionals already trade against them. The point is to watch, with zero risk, which ones actually beat Buy&Hold.
+The three QQQ bots all use the same signal, so the only difference between them is *how* they trade it. That's the comparison to watch.
+
+| Bot | Trades | Budget | How |
+| --- | --- | --- | --- |
+| QQQ Spread | QQQ | $300 | Debit spreads: buy a ~0.50 delta option, sell one $2-5 further out. Fixed max loss, capped profit |
+| By the Rules | QQQ | $50,000 (paper) | Single calls/puts, exactly by the rules below, each trade at most 3% of its cash |
+| $300 Single | QQQ | $300 | Single calls/puts that fit $300. **Bends the rules:** allows delta down to 0.20 and 7 days to expiration |
+| SPY Spread | SPY | $300 | Debit spreads, average-crossover signal |
+| AMD Spread | AMD | $300 | Debit spreads, buy-the-dip / sell-the-rip signal. Out before the Nov 3 earnings report |
+
+**Signals** pick the direction, reading 15-minute bars: *momentum* (price up/down over the last ~5 hours), *average crossover* (short-term average above/below the long-term one), *mean reversion* (bets on a bounce after a sharp move).
+
+## Rules every bot follows
+
+- **Expiration** 14-28 days out (the $300 Single bot: 7-28).
+- **Strike** around 0.40-0.60 delta, closest to 0.50.
+- **Limit orders at the mid** of the bid/ask, never market orders. Unfilled orders are canceled and retried. Exits step toward the bid each retry so they can't get stuck.
+- **Exits:** take profit at +75%, stop loss at -45%, close when the signal flips the other way, and close with 5 days left (time decay accelerates).
+- **Earnings (AMD):** no new trades in the 5 days before the report, and any open trade is closed the trading day before.
+- **No trades** in the first and last 15 minutes of the day, or for 30 minutes after closing a trade.
+
+## How much can I lose?
+
+- **Never more than you put in.** The bots only *buy* options. A single call or put can lose at most what it cost. In a debit spread, the option sold is covered by the one bought, so the spread can lose at most what you paid for it. There's no short selling and nothing with unlimited loss.
+- **Per trade:** each trade is closed at -45%. A sudden overnight gap can blow past that, but a trade still can't lose more than its cost.
+- **Per bot, hard limit:** a bot may lose at most **50% of its budget** ($150 of a $300 bot). Each trade's cost is capped at the room left above that line, so even a trade that goes to zero can't take the bot past it. At the line, the bot stops trading for good.
+
+Change any of these in `config.py` (`RULES` for everything, `BOTS` for one bot).
+
+**None of this makes the bots profitable.** Most retail traders who buy short-dated options lose money over time, mainly to time decay and IV crush. The point is to watch, with fake money, whether any of these approaches holds up.
 
 ## Two modes
 
-- **Demo mode** (no setup): made-up prices that tick every half second. Good for seeing how the strategies behave.
-- **Alpaca paper trading**: real live market prices and real orders placed on Alpaca, but with $100,000 of fake money. The game refuses to run with a live-money key.
+- **Demo mode** (no setup): simulated prices and options. Each tick is one market minute, so a trading day passes in about 80 seconds, and you can see time decay eat positions that go nowhere. The simulated market has no trend built in, so demo results are luck: don't read anything into them.
+- **Alpaca paper trading**: real option prices and real orders on Alpaca, with fake money. The game refuses to run with a live-money key.
 
 ## Run it
 
@@ -31,10 +56,10 @@ All five trade SPY (an S&P 500 index fund) by default so you're comparing strate
 
 ## Connect Alpaca paper trading
 
-1. Sign up for free at [alpaca.markets](https://alpaca.markets). Paper trading only needs an email address. You don't have to fund anything or verify your identity.
-2. In the dashboard, make sure you're on the **Paper Trading** account (top left), then find **API Keys** on the right side of the home page and click **Generate New Keys**.
+1. Sign up for free at [alpaca.markets](https://alpaca.markets). Paper trading only needs an email address.
+2. In the dashboard, switch to the **Paper Trading** account (top left) and generate API keys.
 3. Copy the **Key** (starts with `PK`) and the **Secret**. The secret is shown only once.
-4. In this folder, copy `.env.example` to a new file named `.env` and paste the two values in:
+4. In this folder, copy `.env.example` to a new file named `.env` and paste both values in:
    ```
    ALPACA_API_KEY=PK...
    ALPACA_SECRET_KEY=...
@@ -43,13 +68,14 @@ All five trade SPY (an S&P 500 index fund) by default so you're comparing strate
 
 Keep `.env` private: don't paste the keys into chats, screenshots or commits. It's already git-ignored.
 
-### What to expect
+### What to expect with Alpaca
 
-- Bots only trade while the US stock market is open (9:30am to 4pm Eastern, weekdays). Outside those hours the screen says when it opens next, and the P/L stays where it was.
-- Bots check prices once a minute. Some strategies wait for a signal, so it can take a while before a trade happens.
-- Each bot spends $1,000 (fake) per buy. Every order is tagged with the bot's name, so if you close the game and reopen it, each bot picks up its positions and P/L from your Alpaca order history.
-- Prices come from Alpaca's free data feed (IEX), which can differ slightly from what you see on other sites.
-- You can watch every order in the Alpaca dashboard under **Orders**.
+- The paper account starts with $100,000. Each bot only uses its own budget from `config.py`. The "By the Rules" bot's $50,000 is half of it.
+- Paper accounts normally have options trading (including spreads) turned on. If orders are rejected for options permissions, check **Account > Configure** in the paper dashboard.
+- Bots only trade while the US market is open (9:30am-4pm Eastern, weekdays) and check once a minute.
+- Each bot's cash and open trade are saved in `bot_state.json` in this folder, so closing and reopening the game picks up where it left off. To start the bots fresh, close any open option positions in the Alpaca dashboard, then delete `bot_state.json`.
+- Option prices come from Alpaca's free "indicative" feed, which can differ slightly from the real market. Fills at the mid are not guaranteed.
+- Watch every order in the Alpaca dashboard under **Orders**.
 
 ## Tests
 
