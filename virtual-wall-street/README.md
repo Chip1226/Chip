@@ -59,6 +59,37 @@ If the key is wrong or Claude can't be reached, the error shows in red and every
 
 **Keep expectations low:** professional traders read the same headlines by computer within milliseconds. By the time the News bot reacts, much of the move has usually happened. The price-confirmation rule avoids fighting the market, but it also means buying after the move has started. Watch whether this bot beats the others before trusting it.
 
+## 3D city
+
+```
+python city.py
+```
+
+This opens the same game as a 3D night city in your web browser (Chrome, Edge, Safari or Firefox). The trading is identical; it's only a different view. Keep the terminal window open while you play; closing it (or Ctrl+C) stops the bots.
+
+- **The Exchange**, the tall tower in the middle, shows every bot's P/L, its open position and the combined total on a big screen on each side. The ring floating around it glows green when the bots are up overall and red when they're down. The six light columns on the plaza point at each bot's tower: taller = bigger gain or loss for its budget.
+- **Bot towers** stand in a ring around it. Each one's windows glow cyan while holding a call, magenta for a put, and warm white in cash. The band around the roof turns green or red with the bot's P/L, and a label above shows its numbers.
+- **Trades** fire a beam of light from the roof, with a flash and a shockwave: cyan for a call, magenta for a put, green for a profitable close, red for a loss.
+
+**Moving around:**
+
+| Key | Does |
+| --- | --- |
+| Click the city | Look around with the mouse (Esc gets the cursor back). You can also drag with the mouse button held |
+| W A S D or arrows | Fly forward, left, back, right, in the direction you're looking |
+| Space or E / Q or C | Fly up / down |
+| Shift | Fly faster |
+| 1-6 | Fly to that bot's tower |
+| 0 | Fly to the Exchange |
+| Tab | Fly to the next building |
+| R | Circle around the building you're at, to see it from behind |
+| P | Pause / resume trading |
+| H | Hide / show the controls box |
+
+You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
+
+The 3D view runs on `http://localhost:8765` and only your own computer can reach it. Three.js (the 3D library, MIT license) is included in `web/vendor`, so nothing extra needs installing or downloading. The 2D window (`python main.py`) still works too.
+
 ## Two modes
 
 - **Demo mode** (no setup): simulated prices and options. Each tick is one market minute, so a trading day passes in about 80 seconds, and you can see time decay eat positions that go nowhere. The simulated market has no trend built in, so demo results are luck: don't read anything into them.
@@ -73,6 +104,7 @@ If the key is wrong or Claude can't be reached, the error shows in red and every
    python main.py
    ```
 3. With no keys set up it starts in demo mode. Press **A** to pause or resume trading, **Esc** to quit.
+4. For the 3D city instead, run `python city.py` (see "3D city" above).
 
 ## Connect Alpaca paper trading
 

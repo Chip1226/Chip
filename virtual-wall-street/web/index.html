@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Wall Street</title>
+<style>
+  :root {
+    --panel: rgba(8, 12, 24, 0.72);
+    --border: rgba(120, 160, 255, 0.25);
+    --text: #dde4f5;
+    --muted: #8f9bb8;
+    --green: #3ddc84;
+    --red: #ff5a6a;
+    --cyan: #33d6ff;
+    --magenta: #ff4fd8;
+    --yellow: #ffd84d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070f; color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  canvas { display: block; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; backdrop-filter: blur(6px); }
+  #status { top: 12px; left: 12px; max-width: 420px; }
+  #status .mode { color: var(--cyan); font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+  #status .line { color: var(--muted); font-size: 12px; }
+  #status .error { color: var(--red); font-size: 12px; }
+  #status .paused { color: var(--yellow); font-weight: 600; }
+  #total { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; padding: 8px 22px; }
+  #total .label { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; }
+  #total .value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #buildings { top: 12px; right: 12px; width: 250px; padding: 8px; }
+  #buildings button { all: unset; display: flex; justify-content: space-between; gap: 8px; width: 100%;
+    padding: 6px 8px; border-radius: 6px; cursor: pointer; box-sizing: border-box; }
+  #buildings button:hover, #buildings button.here { background: rgba(120, 160, 255, 0.15); }
+  #buildings .key { color: var(--muted); font-size: 11px; width: 14px; }
+  #buildings .name { flex: 1; }
+  #buildings .pnl { font-variant-numeric: tabular-nums; }
+  #feed { bottom: 12px; left: 12px; width: 340px; padding: 8px 12px; }
+  #feed .title { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; margin-bottom: 4px; }
+  #feed div.item { font-size: 13px; animation: fadein 0.4s; }
+  #help { bottom: 12px; right: 12px; width: 250px; font-size: 12px; color: var(--muted); }
+  #help b { color: var(--text); font-weight: 600; }
+  #help.hidden .body { display: none; }
+  #hint { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
+    font-size: 15px; transition: opacity 0.4s; }
+  #crosshair { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+    border-radius: 50%; background: rgba(255, 255, 255, 0.6); display: none; pointer-events: none; }
+  #offline { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--red); }
+  .up { color: var(--green); } .down { color: var(--red); }
+  .call { color: var(--cyan); } .put { color: var(--magenta); } .info { color: var(--yellow); }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+  @media (max-width: 900px) { #buildings, #help { display: none; } #status { max-width: 60vw; } }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three/build/three.module.min.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="status" class="panel">
+  <div class="mode" id="mode">Connecting to the trading engine...</div>
+  <div class="line" id="statusLine"></div>
+  <div class="line" id="newsLine"></div>
+  <div class="error" id="errorLine"></div>
+</div>
+<div id="total" class="panel"><div class="label">TOTAL P/L - ALL BOTS</div><div class="value" id="totalValue">--</div></div>
+<div id="buildings" class="panel"></div>
+<div id="feed" class="panel"><div class="title">TRADES</div><div id="feedItems"><div class="item" style="color:var(--muted)">No trades yet</div></div></div>
+<div id="help" class="panel">
+  <div><b>Controls</b> &nbsp;(H to hide)</div>
+  <div class="body">
+    <div><b>Click</b> the city to look around with the mouse, <b>Esc</b> to get the cursor back</div>
+    <div><b>W A S D</b> fly &nbsp; <b>Space</b> / <b>E</b> up &nbsp; <b>Q</b> / <b>C</b> down</div>
+    <div><b>Shift</b> fly faster</div>
+    <div><b>1-6</b> travel to a bot &nbsp; <b>0</b> the Exchange &nbsp; <b>Tab</b> next</div>
+    <div><b>R</b> circle around the building you're at</div>
+    <div><b>P</b> pause / resume trading</div>
+  </div>
+</div>
+<div id="hint" class="panel">Click to look around<br><span style="color:var(--muted);font-size:13px">or press 0-6 to travel</span></div>
+<div id="offline" class="panel">Lost connection to the trading engine. Is <b>python city.py</b> still running?</div>
+<div id="crosshair"></div>
+<script type="module" src="./city.js"></script>
+</body>
+</html>

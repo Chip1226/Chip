@@ -1,17 +1,9 @@
-import os
 import queue
 import sys
 
 import pygame
 
-from engine import AlpacaMarket, DemoMarket, Engine, make_bots
-from news import AlpacaNewsFeed, ClaudeJudge, NewsWatcher
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
-except ImportError:
-    pass
+from app import build_engine
 
 # --- CONFIG ---
 SCREEN_WIDTH, SCREEN_HEIGHT = 1240, 640
@@ -155,24 +147,9 @@ def draw_centered(text, used_font, color, y):
     rendered = used_font.render(text, True, color)
     screen.blit(rendered, (SCREEN_WIDTH // 2 - rendered.get_width() // 2, y))
 
-# --- PICK A MARKET ---
-bots = make_bots()
-key, secret = os.getenv("ALPACA_API_KEY", ""), os.getenv("ALPACA_SECRET_KEY", "")
-if key and secret:
-    try:
-        market = AlpacaMarket(key, secret)
-    except ValueError as e:
-        print(e)
-        sys.exit(1)
-else:
-    market = DemoMarket(bots)
-
-# News needs real headlines (Alpaca mode) and a Claude API key to judge them
-news = None
-if isinstance(market, AlpacaMarket) and os.getenv("ANTHROPIC_API_KEY"):
-    news = NewsWatcher(AlpacaNewsFeed(key, secret), ClaudeJudge(), [b.symbol for b in bots])
-
-engine = Engine(market, bots, news)
+# --- START THE TRADING ENGINE ---
+engine = build_engine()
+market, bots, news = engine.market, engine.bots, engine.news
 engine.start()
 
 # --- CREATE BUILDINGS ---
