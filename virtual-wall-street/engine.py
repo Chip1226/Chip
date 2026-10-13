@@ -35,7 +35,7 @@ class Bot:
         self.symbol = spec["symbol"]
         self.style = spec["style"]
         self.signal_name = spec["signal"]
-        self.signal = SIGNALS[spec["signal"]]
+        self.signal = SIGNALS.get(spec["signal"])  # None for "news": the engine asks the news watcher
         self.budget = float(spec["budget"])
         self.cash = self.budget
         # Open trade, or None. legs: [[option symbol, "long" or "short"], ...]
@@ -97,10 +97,12 @@ EXIT_LABELS = {"take_profit": "TAKE PROFIT", "stop_loss": "STOP LOSS", "expiring
 
 
 class Engine(threading.Thread):
-    def __init__(self, market, bots):
+    def __init__(self, market, bots, news=None):
         super().__init__(daemon=True)
         self.market = market
         self.bots = bots
+        self.news = news  # NewsWatcher, or None when news is off
+        self.news_error = ""
         self.events = queue.Queue()  # (bot, text, kind) -> floating text and beam
         self.paused = False
         self.status = "Starting..."
@@ -147,7 +149,10 @@ class Engine(threading.Thread):
             bot.price = closes[-1]
             # Every Nth one-minute close, ending with the latest = N-minute bars
             bars = closes[::-1][::config.SIGNAL_BAR_MINUTES][::-1]
-            signal = bot.signal(bars)
+            if bot.signal_name == "news":
+                signal = self.news.signal(bot.symbol, closes, self.market.now()) if self.news else None
+            else:
+                signal = bot.signal(bars)
             if bot.position:
                 self.manage_open(bot, signal)
             else:
@@ -159,8 +164,11 @@ class Engine(threading.Thread):
         minutes_in = (now - datetime.combine(today, MARKET_OPEN)).total_seconds() / 60
         minutes_left = (datetime.combine(today, MARKET_CLOSE) - now).total_seconds() / 60
         to_earnings = days_to_earnings(bot, today)
+        breaking = self.news.blocked(bot.symbol, now) if self.news and bot.signal_name != "news" else None
         if self.paused:
             bot.note = "paused"
+        elif bot.signal_name == "news" and not self.news:
+            bot.note = "news off (see README)"
         elif bot.loss_room() < 1:
             bot.note = f"STOPPED: hit -{bot.spec['max_loss_pct']:.0%} loss limit"
         elif bot.cooldown_until and now < bot.cooldown_until:
@@ -169,8 +177,10 @@ class Engine(threading.Thread):
             bot.note = "no entries near open/close"
         elif to_earnings is not None and 0 <= to_earnings <= bot.spec.get("blackout_days", 0):
             bot.note = "earnings blackout"
+        elif breaking:
+            bot.note = "major news, waiting"
         elif signal is None:
-            bot.note = "waiting for a signal"
+            bot.note = "waiting for news" if bot.signal_name == "news" else "waiting for a signal"
         else:
             self.open_position(bot, signal, today)
 
@@ -507,6 +517,12 @@ class AlpacaMarket:
                 bot.note = "market closed"
             return
         engine.status = f"Market open - checking every {self.interval}s"
+        if engine.news:
+            try:
+                engine.news.refresh(self.now())
+                engine.news_error = ""
+            except Exception as e:  # a news problem shouldn't stop trading
+                engine.news_error = f"News: {type(e).__name__}: {e}"[:140]
         engine.trade_all()
 
 

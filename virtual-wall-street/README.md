@@ -1,12 +1,12 @@
 # Virtual Wall Street
 
-Five trading bots stand as buildings on screen. Each one trades short-term **options** (calls and puts) on its own and shows its profit or loss above its building.
+Six trading bots stand as buildings on screen. Each one trades short-term **options** (calls and puts) on its own and shows its profit or loss above its building.
 
 - When a bot completes a trade, a beam shoots out of its roof: **cyan** = bought a call, **magenta** = bought a put, **green** = closed at a profit, **red** = closed at a loss.
 - While a trade is open, the building's windows glow cyan (call) or magenta (put).
 - Under each building: the stock and style, what the bot is doing right now, its cash, and its win count.
 
-## The five bots
+## The six bots
 
 The three QQQ bots all use the same signal, so the only difference between them is *how* they trade it. That's the comparison to watch.
 
@@ -17,6 +17,7 @@ The three QQQ bots all use the same signal, so the only difference between them 
 | $300 Single | QQQ | $300 | Single calls/puts that fit $300. **Bends the rules:** allows delta down to 0.20 and 7 days to expiration |
 | SPY Spread | SPY | $300 | Debit spreads, average-crossover signal |
 | AMD Spread | AMD | $300 | Debit spreads, buy-the-dip / sell-the-rip signal. Out before the Nov 3 earnings report |
+| News | AMD | $300 | Debit spreads on news: buys when Claude rates a headline notable or major *and* the price is already moving that way. Same earnings rules. See "News" below |
 
 **Signals** pick the direction, reading 15-minute bars: *momentum* (price up/down over the last ~5 hours), *average crossover* (short-term average above/below the long-term one), *mean reversion* (bets on a bounce after a sharp move).
 
@@ -38,6 +39,25 @@ The three QQQ bots all use the same signal, so the only difference between them 
 Change any of these in `config.py` (`RULES` for everything, `BOTS` for one bot).
 
 **None of this makes the bots profitable.** Most retail traders who buy short-dated options lose money over time, mainly to time decay and IV crush. The point is to watch, with fake money, whether any of these approaches holds up.
+
+## News
+
+With an Anthropic API key, the game reads real headlines about QQQ, SPY and AMD from Alpaca's free news feed and has Claude Haiku (Anthropic's cheapest model) rate each one: up, down or unclear, and minor, notable or major.
+
+- **Protection for every bot:** after a **major** headline about a stock (earnings surprise, big deal, regulatory action, surprise Fed decision), the other bots open no new trades in it for 30 minutes, while prices and option quotes settle. Open trades keep their normal exit rules.
+- **The News bot:** opens a trade when the latest notable or major headline (from the last hour) and the price agree, meaning the price has moved at least 0.2% the headline's way over the last 30 minutes. A good headline with a falling price is skipped: the market may already have priced it in, or disagrees.
+- **On screen:** the line under "AUTO TRADING" shows how many headlines Claude has judged, what that cost, and the latest notable verdict with its one-line reason.
+
+**Cost:** about $0.0001 per headline, so typically well under $1 a month. There's a hard cap of 300 headlines a day (about $0.05). Set a monthly spending limit in the Anthropic console too.
+
+**To turn it on:**
+1. Create an account at [console.anthropic.com](https://console.anthropic.com), add a little credit (for example $5), and create an API key. This is billed separately from a Claude.ai subscription.
+2. Add it to your `.env` file: `ANTHROPIC_API_KEY=sk-ant-...`
+3. Run the game with your Alpaca keys too. News only works in Alpaca mode; demo mode has no real headlines, so the News bot shows "news off".
+
+If the key is wrong or Claude can't be reached, the error shows in red and every other bot keeps trading without the news filter.
+
+**Keep expectations low:** professional traders read the same headlines by computer within milliseconds. By the time the News bot reacts, much of the move has usually happened. The price-confirmation rule avoids fighting the market, but it also means buying after the move has started. Watch whether this bot beats the others before trusting it.
 
 ## Two modes
 
@@ -67,6 +87,8 @@ Change any of these in `config.py` (`RULES` for everything, `BOTS` for one bot).
 5. Run `python main.py` again. The top line now says **ALPACA PAPER TRADING**.
 
 Keep `.env` private: don't paste the keys into chats, screenshots or commits. It's already git-ignored.
+
+To turn on news reading, also add `ANTHROPIC_API_KEY` (see "News" above).
 
 ### What to expect with Alpaca
 

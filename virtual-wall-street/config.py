@@ -24,7 +24,7 @@ RULES = {
 # budget:     dollars this bot starts with (its own slice of the paper account)
 # risk_pct:   most of its current cash one trade may cost (max loss of that trade),
 #             further capped by the max_loss_pct hard limit above
-# signal:     which direction signal picks calls vs puts (see strategies.py)
+# signal:     which direction signal picks calls vs puts (see strategies.py, or "news")
 # earnings:   date of the next earnings report; the bot is flat that day and
 #             opens nothing in the `blackout_days` before it (IV crush)
 #
@@ -42,7 +42,22 @@ BOTS = [
     {"name": "AMD Spread", "symbol": "AMD", "signal": "mean_reversion", "style": "spread",
      "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80,
      "earnings": "2026-11-03", "blackout_days": 5},
+    # Trades AMD news: buys when Claude rates a headline notable or major AND the price is
+    # already moving that way. Needs ANTHROPIC_API_KEY and Alpaca mode (demo mode has no news).
+    {"name": "News", "symbol": "AMD", "signal": "news", "style": "spread",
+     "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80,
+     "earnings": "2026-11-03", "blackout_days": 5},
 ]
+
+# --- News (Alpaca mode with ANTHROPIC_API_KEY set) ---
+NEWS = {
+    "model": "claude-haiku-5-5",   # cheapest Claude model, about $0.0001 per headline
+    "lookback_minutes": 60,        # the News bot acts on headlines up to an hour old
+    "block_minutes": 30,           # every other bot waits this long after a major headline
+    "confirm_minutes": 30,         # the price must have moved the headline's way over this window
+    "confirm_move": 0.002,         # ...by at least 0.2%
+    "max_headlines_per_day": 300,  # spending cap: at most ~$0.05 a day
+}
 
 # No new trades in the first/last minutes of the session, when option quotes are wide and jumpy.
 SKIP_OPEN_MINUTES = 15

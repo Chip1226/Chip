@@ -5,6 +5,7 @@ import sys
 import pygame
 
 from engine import AlpacaMarket, DemoMarket, Engine, make_bots
+from news import AlpacaNewsFeed, ClaudeJudge, NewsWatcher
 
 try:
     from dotenv import load_dotenv
@@ -13,7 +14,7 @@ except ImportError:
     pass
 
 # --- CONFIG ---
-SCREEN_WIDTH, SCREEN_HEIGHT = 1100, 620
+SCREEN_WIDTH, SCREEN_HEIGHT = 1240, 640
 FPS = 60
 
 # Colors
@@ -28,7 +29,8 @@ YELLOW = (255, 255, 0)
 CYAN = (0, 200, 255)
 MAGENTA = (255, 0, 220)
 # Buying a call = cyan, buying a put = magenta, closing at a profit = green, at a loss = red
-SIGNAL_LABELS = {"momentum": "momentum", "sma_crossover": "crossover", "mean_reversion": "reversion"}
+SIGNAL_LABELS = {"momentum": "momentum", "sma_crossover": "crossover", "mean_reversion": "reversion",
+                 "news": "news"}
 EVENT_COLORS = {"call": CYAN, "put": MAGENTA, "profit": GREEN, "loss": RED, "info": YELLOW}
 
 pygame.init()
@@ -165,14 +167,19 @@ if key and secret:
 else:
     market = DemoMarket(bots)
 
-engine = Engine(market, bots)
+# News needs real headlines (Alpaca mode) and a Claude API key to judge them
+news = None
+if isinstance(market, AlpacaMarket) and os.getenv("ANTHROPIC_API_KEY"):
+    news = NewsWatcher(AlpacaNewsFeed(key, secret), ClaudeJudge(), [b.symbol for b in bots])
+
+engine = Engine(market, bots, news)
 engine.start()
 
 # --- CREATE BUILDINGS ---
 buildings = {}
 spacing = SCREEN_WIDTH // (len(bots) + 1)
 for i, bot in enumerate(bots):
-    buildings[bot.name] = Building(spacing * (i + 1) - 40, 280, bot)
+    buildings[bot.name] = Building(spacing * (i + 1) - 40, 300, bot)
 
 # --- MAIN LOOP ---
 while True:
@@ -208,8 +215,17 @@ while True:
     draw_centered(status, small_font, LIGHT_GRAY, 70)
     trading_state = "TRADING PAUSED" if engine.paused else "AUTO TRADING: ON"
     draw_centered(f"{trading_state}  (A to toggle, ESC to quit)", font, YELLOW, 95)
-    if engine.error:
-        draw_centered(engine.error, small_font, RED, 125)
+    if news:
+        lines = []
+        for symbol in news.symbols:
+            v = news.latest(symbol)
+            if v:
+                arrow = {"up": "UP", "down": "DOWN", "unclear": "?"}[v.direction]
+                lines.append(f"{symbol} {arrow} ({v.strength}, {v.published:%I:%M %p}): {v.reason}")
+        draw_centered(f"News: {news.judge.calls} headlines judged, Claude cost ${news.judge.spent:.4f}  |  "
+                      + (lines[-1] if lines else "no notable headlines in the last hour"), small_font, WHITE, 125)
+    if engine.error or engine.news_error:
+        draw_centered(engine.error or engine.news_error, small_font, RED, 145)
 
     for building in buildings.values():
         building.draw(screen)

@@ -1,5 +1,6 @@
 """Run with:  python -m unittest test_trading.py"""
 
+import json
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest import mock
 
 import config
 from engine import AlpacaMarket, Bot, DemoMarket, Engine, make_bots
+from news import ClaudeJudge, Headline, NewsWatcher
 from options import Contract, black_scholes, occ_symbol, parse_occ, pick_single, pick_spread, round_price
 from strategies import mean_reversion, momentum, rsi, sma_crossover
 
@@ -380,6 +382,132 @@ class AlpacaTests(unittest.TestCase):
         market.step(engine)
         self.assertEqual(self.fake.requests, [])
         self.assertIn("Market closed", engine.status)
+
+
+class FakeFeed:
+    def __init__(self):
+        self.items = []
+
+    def fetch(self, symbols, since):
+        return [i for i in self.items if i.published >= since]
+
+
+class FakeClaude:
+    """Stands in for anthropic.Anthropic(): answers with a scripted verdict."""
+
+    def __init__(self, verdict=None, refuse=False):
+        self.verdict = verdict or {"direction": "up", "strength": "notable", "reason": "Upgrade."}
+        self.refuse = refuse
+        self.requests = []
+        self.messages = self
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        return SimpleNamespace(
+            stop_reason="refusal" if self.refuse else "end_turn",
+            content=[] if self.refuse else [SimpleNamespace(type="text", text=json.dumps(self.verdict))],
+            usage=SimpleNamespace(input_tokens=300, output_tokens=200))
+
+
+NOON = datetime(2026, 10, 13, 12, 0)
+
+
+def headline(text, symbols=("AMD",), minutes_ago=10, id_="1"):
+    return Headline(id_, text, "", list(symbols), NOON - timedelta(minutes=minutes_ago))
+
+
+class NewsTests(unittest.TestCase):
+    def watcher(self, **verdict):
+        feed = FakeFeed()
+        claude = FakeClaude({"direction": "up", "strength": "notable", "reason": "r", **verdict})
+        return feed, claude, NewsWatcher(feed, ClaudeJudge(client=claude), ["AMD", "QQQ"])
+
+    def test_judge_request_and_cost(self):
+        feed, claude, watcher = self.watcher()
+        feed.items = [headline("AMD wins big contract")]
+        watcher.refresh(NOON)
+        request = claude.requests[0]
+        self.assertEqual(request["model"], "claude-haiku-5-5")
+        self.assertEqual(request["output_config"]["effort"], "low")
+        self.assertEqual(request["output_config"]["format"]["type"], "json_schema")
+        self.assertIn("Ticker: AMD", request["messages"][0]["content"])
+        self.assertAlmostEqual(watcher.judge.spent, 300 * 0.10 / 1e6 + 200 * 0.50 / 1e6)
+        self.assertEqual(watcher.latest("AMD").direction, "up")
+
+    def test_each_headline_judged_once_per_symbol(self):
+        feed, claude, watcher = self.watcher()
+        feed.items = [headline("Chip stocks rally", symbols=("AMD", "QQQ", "NVDA"))]
+        watcher.refresh(NOON)
+        watcher.refresh(NOON + timedelta(minutes=1))
+        self.assertEqual(len(claude.requests), 2)  # AMD and QQQ, not NVDA, and not again
+
+    def test_refusal_is_skipped(self):
+        feed = FakeFeed()
+        feed.items = [headline("Something")]
+        watcher = NewsWatcher(feed, ClaudeJudge(client=FakeClaude(refuse=True)), ["AMD"])
+        watcher.refresh(NOON)
+        self.assertEqual(watcher.verdicts, [])
+
+    def test_daily_cap(self):
+        feed, claude, watcher = self.watcher()
+        feed.items = [headline(f"h{i}", id_=str(i)) for i in range(5)]
+        with mock.patch.dict(config.NEWS, max_headlines_per_day=3):
+            watcher.refresh(NOON)
+        self.assertEqual(len(claude.requests), 3)
+
+    def test_signal_needs_price_confirmation(self):
+        feed, _, watcher = self.watcher()
+        feed.items = [headline("AMD upgraded")]
+        watcher.refresh(NOON)
+        self.assertEqual(watcher.signal("AMD", UP_MIN, NOON), "call")
+        self.assertIsNone(watcher.signal("AMD", DOWN_MIN, NOON), "price moving against the news")
+        self.assertIsNone(watcher.signal("AMD", UP_MIN, NOON + timedelta(minutes=61)), "headline too old")
+
+    def test_minor_news_is_ignored(self):
+        feed, _, watcher = self.watcher(strength="minor")
+        feed.items = [headline("AMD mentioned in a roundup")]
+        watcher.refresh(NOON)
+        self.assertIsNone(watcher.signal("AMD", UP_MIN, NOON))
+        self.assertIsNone(watcher.blocked("AMD", NOON))
+
+    def test_major_news_blocks_other_bots_but_not_news_bot(self):
+        feed, _, watcher = self.watcher(strength="major")
+        feed.items = [headline("AMD guidance shock")]
+        watcher.refresh(NOON)
+        market = FakeMarket(UP_MIN, [contract(c.strike, c.mid, c.delta) for c in CHAIN])
+        market.clock = NOON
+        other = spread_bot(symbol="AMD")
+        news_bot = Bot({"name": "News", "symbol": "AMD", "signal": "news", "style": "spread",
+                        "widths": [5], "budget": 300, "risk_pct": 0.8, "max_loss_pct": 1.0})
+        engine = Engine(market, [other, news_bot], watcher)
+        engine.trade_all()
+        self.assertIsNone(other.position)
+        self.assertEqual(other.note, "major news, waiting")
+        self.assertEqual(news_bot.position["kind"], "call")
+        market.clock = NOON + timedelta(minutes=31)  # block over
+        engine.trade_all()
+        self.assertIsNotNone(other.position)
+
+    def test_news_bot_idle_without_news(self):
+        market = FakeMarket(UP_MIN, list(CHAIN))
+        bot = Bot({"name": "News", "symbol": "AMD", "signal": "news", "style": "spread",
+                   "widths": [5], "budget": 300, "risk_pct": 0.8})
+        Engine(market, [bot]).trade_all()
+        self.assertIsNone(bot.position)
+        self.assertIn("news off", bot.note)
+
+    def test_news_failure_does_not_stop_trading(self):
+        fake = FakeAlpaca(TODAY)
+        with mock.patch.object(AlpacaMarket, "state_path", None):
+            market = AlpacaMarket("PKTEST", "secret", trading=fake, stocks=fake, options=fake)
+            market.now = lambda: datetime(2026, 10, 13, 11, 0)
+            broken = SimpleNamespace(refresh=mock.Mock(side_effect=RuntimeError("bad key")),
+                                     blocked=lambda *a: None)
+            bot = spread_bot()
+            engine = Engine(market, [bot], broken)
+            market.step(engine)
+        self.assertIn("bad key", engine.news_error)
+        self.assertIsNotNone(bot.position)
 
 
 if __name__ == "__main__":
