@@ -108,6 +108,7 @@ class Engine(threading.Thread):
         self.status = "Starting..."
         self.error = ""
         self.equity = None
+        self.market_open = None  # True / False once the market has been checked
         path = getattr(market, "state_path", None)
         if path and os.path.exists(path):
             with open(path) as f:
@@ -311,6 +312,7 @@ class DemoMarket:
         while day.weekday() >= 5:
             day += timedelta(days=1)
         self.clock = datetime.combine(day, MARKET_OPEN)
+        self.night_ticks = 0
         self.params = {s: config.DEMO_UNDERLYINGS[s] for s in sorted({b.symbol for b in bots})}
         self.history = {s: [p[0]] for s, p in self.params.items()}
         for _ in range(60 * config.SIGNAL_BAR_MINUTES):  # warm-up so signals have data from the start
@@ -362,13 +364,28 @@ class DemoMarket:
         return qty, limit  # demo fills every limit order in full at its price
 
     def step(self, engine):
+        if self.night_ticks:
+            # Overnight: a short pause between trading days so the 3D city shows night.
+            self.night_ticks -= 1
+            if not self.night_ticks:
+                day = self.clock.date() + timedelta(days=1)
+                while day.weekday() >= 5:
+                    day += timedelta(days=1)
+                self.clock = datetime.combine(day, MARKET_OPEN)
+            engine.market_open = False
+            engine.status = "Market closed - simulated night"
+            return
         self.clock += timedelta(minutes=1)
         if self.clock.time() >= MARKET_CLOSE:
-            day = self.clock.date() + timedelta(days=1)
-            while day.weekday() >= 5:
-                day += timedelta(days=1)
-            self.clock = datetime.combine(day, MARKET_OPEN)
+            self.night_ticks = config.DEMO_NIGHT_TICKS
+            if self.night_ticks:
+                engine.market_open = False
+                engine.status = "Market closed - simulated night"
+                return
+            self.night_ticks = 1  # no pause configured: jump straight to the next open
+            return self.step(engine)
         self._tick_prices()
+        engine.market_open = True
         engine.status = f"Simulated time {self.clock:%a %b %d  %I:%M %p}"
         engine.trade_all()
 
@@ -511,6 +528,7 @@ class AlpacaMarket:
         engine.equity = float(self.trading.get_account().equity)
         self._closes = {s: self.latest_closes(s) for s in {b.symbol for b in engine.bots}}
         clock = self.trading.get_clock()
+        engine.market_open = bool(clock.is_open)
         if not clock.is_open:
             engine.status = f"Market closed - opens {clock.next_open:%a %b %d %I:%M %p} ET"
             for bot in engine.bots:

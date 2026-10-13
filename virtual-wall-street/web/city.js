@@ -52,17 +52,22 @@ function rng(seed) {
   };
 }
 
-// ---------- Sky, stars, moon, lights ----------
+// ---------- Sky, sun, moon, stars, lights (day while the market is open, night when it's closed) ----------
 
-function makeSky() {
+const SKY = {
+  night: { top: 0x02030a, mid: 0x0c1430, horizon: 0x3b2a55 },
+  day: { top: 0x1d5cc2, mid: 0x5a9ae6, horizon: 0xcfe2f6 },
+};
+
+function makeSky(colors) {
   return new THREE.Mesh(
     new THREE.SphereGeometry(2000, 32, 16),
     new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false,
       uniforms: {
-        top: { value: new THREE.Color(0x02030a) },
-        mid: { value: new THREE.Color(0x0c1430) },
-        horizon: { value: new THREE.Color(0x3b2a55) },
+        top: { value: new THREE.Color(colors.top) },
+        mid: { value: new THREE.Color(colors.mid) },
+        horizon: { value: new THREE.Color(colors.horizon) },
       },
       vertexShader: `varying vec3 vDir;
         void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -76,10 +81,10 @@ function makeSky() {
     }),
   );
 }
-const sky = makeSky();
+const sky = makeSky(SKY.night);
 scene.add(sky);
 
-{
+const stars = (() => {
   const r = rng(7), positions = [], colors = [];
   for (let i = 0; i < 2200; i++) {
     const u = r() * 2 * Math.PI, v = 0.08 + r() * 0.92;
@@ -91,41 +96,50 @@ scene.add(sky);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, fog: false })));
-}
+  const points = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 1.6, sizeAttenuation: false, vertexColors: true, fog: false, transparent: true, depthWrite: false }));
+  scene.add(points);
+  return points;
+})();
 
-const moonDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
+// The moon rises in the east-ish sky at night; the sun crosses the other side by day.
 const moon = new THREE.Mesh(new THREE.SphereGeometry(38, 32, 16),
   new THREE.MeshBasicMaterial({ color: new THREE.Color(0xe8eeff).multiplyScalar(1.6), fog: false }));
-moon.position.copy(moonDir).multiplyScalar(1700);
 scene.add(moon);
+const sun = new THREE.Mesh(new THREE.SphereGeometry(55, 32, 16),
+  new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff2d6).multiplyScalar(3), fog: false }));
+scene.add(sun);
 
-scene.add(new THREE.HemisphereLight(0x5a74c8, 0x0a0a14, 0.55));
-const moonLight = new THREE.DirectionalLight(0xa8baff, 0.9);
-moonLight.position.copy(moonDir).multiplyScalar(400);
-moonLight.castShadow = true;
-moonLight.shadow.mapSize.set(2048, 2048);
-Object.assign(moonLight.shadow.camera, { left: -240, right: 240, top: 240, bottom: -240, near: 1, far: 1000 });
-moonLight.shadow.bias = -0.0004;
-moonLight.shadow.normalBias = 0.6;
-scene.add(moonLight);
+const hemi = new THREE.HemisphereLight(0x5a74c8, 0x0a0a14, 0.55);
+scene.add(hemi);
+const skyLight = new THREE.DirectionalLight(0xa8baff, 0.9); // the moon at night, the sun by day
+skyLight.castShadow = true;
+skyLight.shadow.mapSize.set(2048, 2048);
+Object.assign(skyLight.shadow.camera, { left: -240, right: 240, top: 240, bottom: -240, near: 1, far: 1000 });
+skyLight.shadow.bias = -0.0004;
+skyLight.shadow.normalBias = 0.6;
+scene.add(skyLight);
 
-// Reflections: glass and wet streets reflect a soft version of the sky and city glow.
-{
-  const envScene = new THREE.Scene();
-  envScene.add(makeSky());
-  const r = rng(11);
-  for (let i = 0; i < 40; i++) {
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(40, 10 + r() * 30),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(0.08 + r() * 0.55, 0.6, 0.5).multiplyScalar(0.8), side: THREE.DoubleSide }));
-    const a = r() * Math.PI * 2;
-    glow.position.set(Math.cos(a) * 300, 10 + r() * 60, Math.sin(a) * 300);
-    glow.lookAt(0, 30, 0);
-    envScene.add(glow);
-  }
+// Reflections: glass and streets reflect a soft version of the sky (one map for night, one for day).
+const envMaps = (() => {
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(envScene, 0.02).texture;
-}
+  const build = (colors, glowLightness, glowPower) => {
+    const envScene = new THREE.Scene();
+    envScene.add(makeSky(colors));
+    const r = rng(11);
+    for (let i = 0; i < 40; i++) {
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(40, 10 + r() * 30),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(0.08 + r() * 0.55, 0.5, glowLightness).multiplyScalar(glowPower), side: THREE.DoubleSide }));
+      const a = r() * Math.PI * 2;
+      glow.position.set(Math.cos(a) * 300, 10 + r() * 60, Math.sin(a) * 300);
+      glow.lookAt(0, 30, 0);
+      envScene.add(glow);
+    }
+    return pmrem.fromScene(envScene, 0.02).texture;
+  };
+  return { night: build(SKY.night, 0.5, 0.8), day: build(SKY.day, 0.7, 0.5) };
+})();
+scene.environment = envMaps.night;
 
 // ---------- Ground, plaza, streets ----------
 
@@ -220,6 +234,7 @@ function windowTexture(seed, { cols = 8, rows = 24, lit = 0.55, tint = true } = 
   return t;
 }
 
+const windowMats = [];
 const roofMat = new THREE.MeshStandardMaterial({ color: 0x11151f, roughness: 0.7, metalness: 0.5 });
 
 function towerMaterials(tex, w, h, emissive, intensity) {
@@ -228,6 +243,9 @@ function towerMaterials(tex, w, h, emissive, intensity) {
     color: 0x18202e, roughness: 0.12, metalness: 0.9, envMapIntensity: 1.1,
     emissive, emissiveMap: tex, emissiveIntensity: intensity,
   });
+  side.userData.base = intensity;
+  side.userData.dayGlow = 0.12; // by day, windows mostly look dark against the sunlit glass
+  windowMats.push(side);
   return { side, list: [side, side, roofMat, roofMat, side, side] };
 }
 
@@ -292,6 +310,7 @@ class BotTower {
     this.pos = this.dir.clone().multiplyScalar(RING);
     const mats = towerMaterials(windowTexture(20 + i, { lit: 0.6, tint: false }), TOWER_W, this.h, 0xffe2b8, 1.0);
     this.mat = mats.side;
+    this.mat.userData.dayGlow = 0.55; // bot towers keep their call/put color visible by day
     addBox(TOWER_W, this.h, TOWER_W, this.pos.x, 0, this.pos.z, mats.list);
     colliders.push({ x: this.pos.x, z: this.pos.z, hw: TOWER_W / 2, hd: TOWER_W / 2, h: this.h + 12 });
     // Glowing band around the roof: green in profit, red in loss.
@@ -317,7 +336,7 @@ class BotTower {
     const kind = bot.position?.kind;
     const target = kind ? new THREE.Color(COLORS[kind]) : new THREE.Color(0xffe2b8);
     this.mat.emissive.copy(target);
-    this.mat.emissiveIntensity = kind ? 1.7 : 0.9;
+    this.mat.userData.base = kind ? 1.7 : 0.9;
     this.crownMat.color.set(bot.pnl > 0.005 ? COLORS.profit : bot.pnl < -0.005 ? COLORS.loss : 0x8090b0).multiplyScalar(2.4);
     const key = JSON.stringify([bot.pnl, bot.note, bot.cash, bot.wins, bot.trades, kind]);
     if (key !== this.labelKey) { this.labelKey = key; this.drawLabel(bot); }
@@ -578,6 +597,7 @@ window.addEventListener('keydown', (e) => {
   if (/^Digit[0-6]$/.test(e.code)) { const n = +e.code.slice(5); travelTo(n === 0 ? 6 : n - 1); return; }
   if (e.code === 'KeyR') { toggleOrbit(); return; }
   if (e.code === 'KeyP') { togglePause(); return; }
+  if (e.code === 'KeyN') { cycleDaylight(); return; }
   if (e.code === 'KeyH') { document.getElementById('legend').classList.toggle('hidden'); return; }
   if (MOVE_KEYS.has(e.code)) {
     e.preventDefault();
@@ -693,6 +713,12 @@ function addFeed(e) {
 }
 
 function applyState(s) {
+  daylight.market = s.market_open;
+  if (!daylight.ready && s.market_open !== null) { // first reading: jump straight there, no sunset on load
+    daylight.ready = true;
+    if (daylight.override === 'auto') daylight.t = s.market_open ? 1 : 0;
+  }
+  el('skyLine').innerHTML = skyText();
   el('mode').textContent = s.mode;
   let status = s.status || '';
   if (s.equity != null) status += `  |  Paper equity $${s.equity.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -743,6 +769,83 @@ async function togglePause() {
   try { await fetch('/api/pause', { method: 'POST', headers: { 'X-VWS': '1' } }); } catch (err) { /* shown by poll */ }
 }
 
+
+// ---------- Day and night ----------
+// 1 = full day, 0 = full night. Follows the market: open = day, closed = night.
+// N cycles a preview: follow the market -> always day -> always night.
+
+const daylight = { t: 0, target: 0, market: null, override: 'auto', ready: false };
+const lampBase = lampBulbs.material.color.clone();
+const dashBase = dashes.material.color.clone();
+const C = (hex) => new THREE.Color(hex);
+const LOOK = {
+  night: { fog: C(0x0a1022), fogDensity: 0.0021, hemiSky: C(0x5a74c8), hemiGround: C(0x0a0a14), hemi: 0.55,
+    exposure: 1.05, bloom: 0.85, threshold: 0.8, lamps: 1, sky: { top: C(SKY.night.top), mid: C(SKY.night.mid), horizon: C(SKY.night.horizon) } },
+  day: { fog: C(0xb9cde6), fogDensity: 0.0011, hemiSky: C(0xd2e6ff), hemiGround: C(0x4a4f5a), hemi: 1.7,
+    exposure: 0.95, bloom: 0.3, threshold: 0.95, lamps: 0.12, sky: { top: C(SKY.day.top), mid: C(SKY.day.mid), horizon: C(SKY.day.horizon) } },
+};
+const smooth = (a, b, x) => { const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+function setDaylight(t) {
+  const n = LOOK.night, d = LOOK.day;
+  for (const k of ['top', 'mid', 'horizon']) sky.material.uniforms[k].value.copy(n.sky[k]).lerp(d.sky[k], t);
+  scene.fog.color.copy(n.fog).lerp(d.fog, t);
+  scene.fog.density = THREE.MathUtils.lerp(n.fogDensity, d.fogDensity, t);
+  hemi.color.copy(n.hemiSky).lerp(d.hemiSky, t);
+  hemi.groundColor.copy(n.hemiGround).lerp(d.hemiGround, t);
+  hemi.intensity = THREE.MathUtils.lerp(n.hemi, d.hemi, t);
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(n.exposure, d.exposure, t);
+  bloom.strength = THREE.MathUtils.lerp(n.bloom, d.bloom, t);
+  bloom.threshold = THREE.MathUtils.lerp(n.threshold, d.threshold, t);
+  scene.environment = t > 0.5 ? envMaps.day : envMaps.night;
+  ground.material.roughness = THREE.MathUtils.lerp(0.3, 0.7, t); // wet-look streets at night, dry by day
+
+  // The sun climbs as day comes; the moon rises as night falls.
+  const sunDir = new THREE.Vector3(0.45, THREE.MathUtils.lerp(-0.3, 0.4, t), -0.85).normalize();
+  const moonDir = new THREE.Vector3(-0.55, THREE.MathUtils.lerp(0.42, -0.3, t), -0.72).normalize();
+  sun.position.copy(sunDir).multiplyScalar(1750);
+  moon.position.copy(moonDir).multiplyScalar(1700);
+  sun.visible = sunDir.y > -0.08;
+  moon.visible = moonDir.y > -0.08;
+  stars.material.opacity = Math.pow(1 - smooth(0, 0.6, t), 2);
+  const sunUp = smooth(0.35, 0.9, t), moonUp = smooth(0.35, 0.9, 1 - t);
+  if (sunUp >= moonUp) {
+    skyLight.position.copy(sunDir).multiplyScalar(400);
+    skyLight.color.set(0xfff0d8);
+    skyLight.intensity = 2.6 * sunUp;
+  } else {
+    skyLight.position.copy(moonDir).multiplyScalar(400);
+    skyLight.color.set(0xa8baff);
+    skyLight.intensity = 0.9 * moonUp;
+  }
+
+  for (const m of windowMats) m.emissiveIntensity = m.userData.base * THREE.MathUtils.lerp(1, m.userData.dayGlow, t);
+  const lamps = THREE.MathUtils.lerp(n.lamps, d.lamps, t);
+  lampBulbs.material.color.copy(lampBase).multiplyScalar(lamps);
+  dashes.material.color.copy(dashBase).multiplyScalar(Math.max(lamps, 0.35));
+}
+
+function updateDaylight(dt) {
+  const o = daylight.override;
+  daylight.target = o === 'day' ? 1 : o === 'night' ? 0 : daylight.market === true ? 1 : 0;
+  const step = dt / 6; // a full sunset or sunrise takes about 6 seconds
+  daylight.t += THREE.MathUtils.clamp(daylight.target - daylight.t, -step, step);
+  setDaylight(daylight.t);
+}
+
+function skyText() {
+  const night = daylight.target < 0.5;
+  const what = daylight.override === 'auto'
+    ? (daylight.market === null ? 'Waiting for the market clock' : night ? 'Market closed: night' : 'Market open: daytime')
+    : `Preview: always ${daylight.override} (N to follow the market)`;
+  return `${night ? '&#9790;' : '&#9728;'} ${what}`;
+}
+
+function cycleDaylight() {
+  daylight.override = { auto: 'day', day: 'night', night: 'auto' }[daylight.override];
+  el('skyLine').innerHTML = skyText();
+}
+
 // ---------- Main loop ----------
 
 const clock = new THREE.Clock();
@@ -751,6 +854,7 @@ function frame() {
   const time = clock.elapsedTime;
   updateNav(dt);
   updateBeams(dt);
+  updateDaylight(dt);
   exchange.halo.rotation.z += dt * 0.15;
   exchange.halo.position.y = 64 + Math.sin(time * 0.6) * 1.5;
   for (const b of exchange.bars) b.bar.scale.y += (b.target - b.bar.scale.y) * (1 - Math.exp(-dt * 3));
@@ -770,5 +874,5 @@ poll();
 frame();
 
 // Handy for testing from the browser console, e.g. vws.travelTo(2, true)
-window.vws = { travelTo, spawnBeam: (i, kind) => spawnBeam(towers[i], kind), nav, camera,
+window.vws = { daylight, travelTo, spawnBeam: (i, kind) => spawnBeam(towers[i], kind), nav, camera,
   collide: (x, y, z) => { const p = new THREE.Vector3(x, y, z); collide(p); return p; } };

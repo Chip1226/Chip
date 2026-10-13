@@ -74,6 +74,9 @@ FILL_WAIT_SECONDS = 20
 
 # Demo mode (no Alpaca keys): each tick is one simulated market minute.
 DEMO_TICK_SECONDS = 0.2
+# Demo mode: ticks of "night" between trading days (150 x 0.2s = 30 seconds), so the
+# 3D city shows night after each close. 0 skips straight to the next morning.
+DEMO_NIGHT_TICKS = 150
 # Made-up starting prices and volatility for the simulation (not real quotes).
 DEMO_UNDERLYINGS = {
     # symbol: (start price, implied volatility, strike step, bid/ask spread as % of price, daily expirations)

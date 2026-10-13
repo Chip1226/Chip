@@ -267,6 +267,25 @@ class EngineRuleTests(unittest.TestCase):
 
 
 class DemoTests(unittest.TestCase):
+    def test_demo_has_a_night_after_the_close(self):
+        bots = make_bots()
+        market = DemoMarket(bots, seed=1, start=TODAY)
+        engine = Engine(market, bots)
+        market.step(engine)
+        self.assertTrue(engine.market_open)
+        for _ in range(389):
+            market.step(engine)
+        self.assertFalse(engine.market_open, "4:00 PM: market closed")
+        events = engine.events.qsize()
+        for _ in range(config.DEMO_NIGHT_TICKS - 1):
+            market.step(engine)
+            self.assertFalse(engine.market_open)
+        self.assertEqual(engine.events.qsize(), events, "no trading at night")
+        market.step(engine)  # night over: jumps to the next morning
+        market.step(engine)
+        self.assertTrue(engine.market_open)
+        self.assertEqual(market.clock.date(), TODAY + timedelta(days=1))
+
     def test_demo_runs_a_simulated_week(self):
         bots = make_bots()
         market = DemoMarket(bots, seed=3, start=TODAY)
@@ -382,6 +401,7 @@ class AlpacaTests(unittest.TestCase):
         market.step(engine)
         self.assertEqual(self.fake.requests, [])
         self.assertIn("Market closed", engine.status)
+        self.assertFalse(engine.market_open)
 
 
 class FakeFeed:

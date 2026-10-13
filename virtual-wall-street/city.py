@@ -69,6 +69,7 @@ def snapshot(engine, log, since):
         }
     return {
         "mode": engine.market.name, "status": engine.status, "paused": engine.paused,
+        "market_open": engine.market_open,
         "error": engine.error or engine.news_error, "equity": engine.equity,
         "total_pnl": round(sum(b.pnl for b in engine.bots), 2),
         "bots": bots, "news": news, "events": events, "last_event_id": last_id,

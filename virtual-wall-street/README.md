@@ -70,6 +70,7 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 - **The Exchange**, the tall tower in the middle, shows every bot's P/L, its open position and the combined total on a big screen on each side. The ring floating around it glows green when the bots are up overall and red when they're down. The six light columns on the plaza point at each bot's tower: taller = bigger gain or loss for its budget.
 - **Bot towers** stand in a ring around it. Each one's windows glow cyan while holding a call, magenta for a put, and warm white in cash. The band around the roof turns green or red with the bot's P/L, and a label above shows its numbers.
 - **Trades** fire a beam of light from the roof, with a flash and a shockwave: cyan for a call, magenta for a put, green for a profitable close, red for a loss.
+- **Day and night follow the market.** While the market is open it's daytime, with the sun out. When it closes, the sun sets, the sky darkens, the stars come out, the moon rises and the city lights up. It turns back to day when the market opens. In demo mode each night lasts 30 seconds (`DEMO_NIGHT_TICKS` in `config.py`). Press **N** to preview: always day, always night, then back to following the market.
 
 **Moving around:**
 
@@ -86,6 +87,7 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 | Tab | Fly to the next building |
 | R | Circle around the building you're at, to see it from behind |
 | P | Pause / resume trading |
+| N | Preview day / night (press again to cycle back to following the market) |
 | H | Hide / show the key legend at the bottom of the screen |
 
 The arrow keys alone are enough to get around; the legend along the bottom of the screen lists every key. You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
