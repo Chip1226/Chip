@@ -10,3 +10,6 @@ next-env.d.ts
 
 # Demo form submissions contain real customer contact info — keep them out of git
 data/demo-requests.json
+
+# Python
+__pycache__/
