@@ -15,3 +15,4 @@ data/demo-requests.json
 __pycache__/
 # Virtual Wall Street bot positions (local to each computer)
 virtual-wall-street/bot_state.json*
+virtual-wall-street/city.log

@@ -59,6 +59,23 @@ If the key is wrong or Claude can't be reached, the error shows in red and every
 
 **Keep expectations low:** professional traders read the same headlines by computer within milliseconds. By the time the News bot reacts, much of the move has usually happened. The price-confirmation rule avoids fighting the market, but it also means buying after the move has started. Watch whether this bot beats the others before trusting it.
 
+## Make it a Mac app (no Terminal needed)
+
+Run this once, in Terminal, from this folder:
+
+```
+bash make_app.sh
+```
+
+It creates **Virtual Wall Street** in your Applications folder, with its own icon. From then on:
+
+- **Open it** like any app: double-click it in Applications, find it in Launchpad, or press Cmd+Space and type "Virtual". Drag it to your Dock to keep it one click away. The game starts in the background and the 3D city opens in your browser.
+- **Closing the browser tab doesn't stop the bots.** They keep trading in the background while your Mac is awake. Open the app again to see the city.
+- **To stop the game,** click **Stop game** in the top-left panel of the city.
+- Opening the app while the game is already running just opens the city again. It never starts a second set of bots.
+- If you move the game folder or install a different Python, run `bash make_app.sh` again.
+- If the game won't start, the app shows the error. The full log is in `city.log` in this folder.
+
 ## 3D city
 
 ```

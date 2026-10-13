@@ -94,13 +94,19 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
-        # The custom header keeps other websites open in your browser from pressing pause:
+        # The custom header keeps other websites open in your browser from pressing these:
         # browsers won't send it cross-site without permission, which this server never gives.
-        if urlparse(self.path).path == "/api/pause" and self.headers.get("X-VWS") == "1":
+        path = urlparse(self.path).path
+        if self.headers.get("X-VWS") != "1":
+            self.send_error(403)
+        elif path == "/api/pause":
             self.engine.paused = not self.engine.paused
             self.send_json({"paused": self.engine.paused})
+        elif path == "/api/quit":
+            self.send_json({"stopping": True})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
-            self.send_error(403)
+            self.send_error(404)
 
     def end_headers(self):
         if not self.path.startswith("/vendor/"):
@@ -125,18 +131,28 @@ def main():
     parser.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     args = parser.parse_args()
 
-    engine = build_engine()
-    engine.start()
-    log = EventLog(engine)
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, engine=engine, log=log))
     url = f"http://localhost:{args.port}"
+    engine = build_engine()
+    log = EventLog(engine)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), partial(Handler, engine=engine, log=log))
+    except OSError:
+        # Already running: never start a second set of bots on the same account.
+        print(f"Virtual Wall Street is already running. Opening {url}")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
+    engine.start()
     print(f"Virtual Wall Street 3D is running at {url}  (Ctrl+C to stop)")
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, [url]).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        pass
+    print("\nStopping: letting the bots finish what they're doing...")
+    engine.stop()
+    print("Stopped.")
 
 
 if __name__ == "__main__":

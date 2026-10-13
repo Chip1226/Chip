@@ -103,6 +103,7 @@ class Engine(threading.Thread):
         self.bots = bots
         self.news = news  # NewsWatcher, or None when news is off
         self.news_error = ""
+        self.busy = threading.Lock()
         self.events = queue.Queue()  # (bot, text, kind) -> floating text and beam
         self.paused = False
         self.status = "Starting..."
@@ -123,13 +124,22 @@ class Engine(threading.Thread):
     def run(self):
         while True:
             started = time.monotonic()
-            try:
-                self.market.step(self)
-                self.save()
-                self.error = ""
-            except Exception as e:  # keep running; show the problem on screen
-                self.error = f"{type(e).__name__}: {e}"[:140]
+            with self.busy:  # held for a whole step, so stopping never cuts an order in half
+                try:
+                    self.market.step(self)
+                    self.save()
+                    self.error = ""
+                except Exception as e:  # keep running; show the problem on screen
+                    self.error = f"{type(e).__name__}: {e}"[:140]
             time.sleep(max(0, self.market.interval - (time.monotonic() - started)))
+
+    def stop(self, timeout=90):
+        """Wait for the current step (an order waiting to fill, say) to finish, then hold.
+
+        Returns True if it got there in time. The thread is a daemon, so the program
+        can exit right after this without leaving a trade half-recorded.
+        """
+        return self.busy.acquire(timeout=timeout)
 
     def save(self):
         path = getattr(self.market, "state_path", None)

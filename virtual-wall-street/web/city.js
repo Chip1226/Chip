@@ -754,7 +754,9 @@ function applyState(s) {
   lastEventId = s.last_event_id;
 }
 
+let stopped = false;
 async function poll() {
+  if (stopped) return;
   try {
     const r = await fetch(`/api/state?since=${lastEventId ?? 0}`);
     applyState(await r.json());
@@ -764,6 +766,17 @@ async function poll() {
   }
   setTimeout(poll, 500);
 }
+
+document.getElementById('stopBtn').addEventListener('click', async (e) => {
+  e.currentTarget.blur();
+  if (!window.confirm('Stop the game? The bots stop trading until you open it again.')) return;
+  try {
+    await fetch('/api/quit', { method: 'POST', headers: { 'X-VWS': '1' } });
+    stopped = true;
+    el('offline').style.display = 'none';
+    el('stopped').style.display = 'block';
+  } catch (err) { /* poll shows the connection problem */ }
+});
 
 async function togglePause() {
   try { await fetch('/api/pause', { method: 'POST', headers: { 'X-VWS': '1' } }); } catch (err) { /* shown by poll */ }

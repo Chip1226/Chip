@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Virtual Wall Street</title>
+<link rel="icon" href="icon.png">
 <style>
   :root {
     --panel: rgba(8, 12, 24, 0.72);
@@ -50,6 +51,10 @@
   #legend.hidden .item:not(.always) { display: none; }
   #hint { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none;
     font-size: 15px; transition: opacity 0.4s; }
+  #stopBtn { margin-top: 8px; padding: 4px 12px; border-radius: 6px; cursor: pointer; font: 600 12px system-ui, sans-serif;
+    color: var(--text); background: rgba(255, 90, 106, 0.14); border: 1px solid rgba(255, 90, 106, 0.5); }
+  #stopBtn:hover { background: rgba(255, 90, 106, 0.3); }
+  #stopped { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-align: center; max-width: 440px; }
   #crosshair { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
     border-radius: 50%; background: rgba(255, 255, 255, 0.6); display: none; pointer-events: none; }
   #offline { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--red); }
@@ -72,6 +77,7 @@
   <div class="line" id="skyLine"></div>
   <div class="line" id="newsLine"></div>
   <div class="error" id="errorLine"></div>
+  <button id="stopBtn" title="Stop the bots and close the game">Stop game</button>
 </div>
 <div id="total" class="panel"><div class="label">TOTAL P/L - ALL BOTS</div><div class="value" id="totalValue">--</div></div>
 <div id="buildings" class="panel"></div>
@@ -92,6 +98,8 @@
   <span class="item always"><kbd>H</kbd> hide keys</span>
 </div>
 <div id="hint" class="panel">Use the arrow keys to walk and turn<br><span style="color:var(--muted);font-size:13px">click to look around with the mouse, or press 0-6 to travel</span></div>
+<div id="stopped" class="panel"><b>The game is stopped.</b><br>
+  <span style="color:var(--muted)">The bots are no longer trading. Open the Virtual Wall Street app (or run python3 city.py) to start again. You can close this tab.</span></div>
 <div id="offline" class="panel">Lost connection to the trading engine. Is <b>python city.py</b> still running?</div>
 <div id="crosshair"></div>
 <script type="module" src="./city.js"></script>
