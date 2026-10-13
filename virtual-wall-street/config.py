@@ -12,9 +12,9 @@ RULES = {
     # Every trade's cost is capped at the room left above this line, so even a trade
     # that goes to zero can't push the bot past it. At the line the bot stops for good.
     "max_loss_pct": 0.50,
-    "exit_dte": 5,
+    "exit_dte": 5,          # never hold into the last days before expiration
     # "Clearly broken": the signal must point the other way this long before the bot exits on it.
-    "flip_confirm_minutes": 120,          # never hold into the last days before expiration
+    "flip_confirm_minutes": 120,
     "cooldown_minutes": 30, # wait after closing a trade before opening the next one
 }
 
@@ -35,7 +35,8 @@ BOTS = [
     {"name": "By the Rules", "symbol": "QQQ", "signal": "momentum", "style": "single",
      "budget": 50000, "risk_pct": 0.03},
     {"name": "$300 Single", "symbol": "QQQ", "signal": "momentum", "style": "single",
-     "budget": 300, "risk_pct": 1.00, "min_dte": 7, "delta_min": 0.20},  # bends the rules to fit $300
+     "budget": 300, "risk_pct": 1.00, "min_dte": 7, "delta_min": 0.20,  # bends the rules to fit $300
+     "max_loss_pct": 1.00},  # may lose its whole $300, never more
     {"name": "SPY Spread", "symbol": "SPY", "signal": "sma_crossover", "style": "spread",
      "widths": [5, 3, 2], "budget": 300, "risk_pct": 0.80},
     {"name": "AMD Spread", "symbol": "AMD", "signal": "mean_reversion", "style": "spread",

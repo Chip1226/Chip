@@ -33,7 +33,7 @@ The three QQQ bots all use the same signal, so the only difference between them 
 
 - **Never more than you put in.** The bots only *buy* options. A single call or put can lose at most what it cost. In a debit spread, the option sold is covered by the one bought, so the spread can lose at most what you paid for it. There's no short selling and nothing with unlimited loss.
 - **Per trade:** each trade is closed at -45%. A sudden overnight gap can blow past that, but a trade still can't lose more than its cost.
-- **Per bot, hard limit:** a bot may lose at most **50% of its budget** ($150 of a $300 bot). Each trade's cost is capped at the room left above that line, so even a trade that goes to zero can't take the bot past it. At the line, the bot stops trading for good.
+- **Per bot, hard limit:** a bot may lose at most **50% of its budget** ($150 of a $300 bot). The exception is $300 Single, whose limit is 100%: it can lose its whole $300, but never more. Each trade's cost is capped at the room left above that line, so even a trade that goes to zero can't take the bot past it. At the line, the bot stops trading for good.
 
 Change any of these in `config.py` (`RULES` for everything, `BOTS` for one bot).
 
