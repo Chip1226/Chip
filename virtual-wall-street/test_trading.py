@@ -199,6 +199,20 @@ class EngineRuleTests(unittest.TestCase):
         self.assertLess(second, first)  # closer to the bid each retry
         self.assertIsNotNone(self.bot.position)
 
+    def test_unfilled_entry_creeps_toward_ask_but_stays_near_mid(self):
+        self.market.fill = False
+        for _ in range(6):
+            self.engine.trade_all()
+        limits = [order[2] for order in self.market.orders]
+        mid, natural = 2.0, 6.05 - 3.95  # spread mid; buying at long ask - short bid
+        self.assertEqual(limits[0], mid)
+        self.assertTrue(all(b >= a for a, b in zip(limits, limits[1:])), limits)
+        self.assertLessEqual(max(limits), round(mid + 0.3 * (natural - mid), 2) + 1e-9)
+        self.market.fill = True
+        self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position)
+        self.assertEqual(self.bot.entry_attempts, 0)
+
     def test_no_entries_right_after_open(self):
         self.market.clock = datetime(2026, 10, 13, 9, 35)
         self.engine.trade_all()

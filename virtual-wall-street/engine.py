@@ -44,6 +44,7 @@ class Bot:
         self.position_value = 0.0  # what the open position is worth now, in dollars
         self.cooldown_until = None
         self.exit_attempts = 0
+        self.entry_attempts = 0  # unfilled entry tries for the current signal
         self.flip_since = None  # when the signal started pointing against the open trade
         self.trades = 0
         self.wins = 0
@@ -194,6 +195,8 @@ class Engine(threading.Thread):
             bot.note = "waiting for news" if bot.signal_name == "news" else "waiting for a signal"
         else:
             self.open_position(bot, signal, today)
+            return
+        bot.entry_attempts = 0  # no entry this time: the next signal starts back at the mid
 
     def open_position(self, bot, kind, today):
         s = bot.spec
@@ -206,6 +209,7 @@ class Engine(threading.Thread):
                 long, short = pick
                 legs = [[long.symbol, "long"], [short.symbol, "short"]]
                 unit = long.mid - short.mid
+                natural = long.ask - short.bid  # what the spread costs to buy right now
                 label = f"{long.strike:g}/{short.strike:g}{cp} {long.expiration:%m/%d}"
                 expiration = long.expiration
         else:
@@ -213,21 +217,27 @@ class Engine(threading.Thread):
             if pick:
                 legs = [[pick.symbol, "long"]]
                 unit = pick.mid
+                natural = pick.ask
                 label = f"{pick.strike:g}{cp} {pick.expiration:%m/%d}"
                 expiration = pick.expiration
         if not pick:
             bot.note = why
             return
 
-        limit = round_price(unit, bot.symbol)  # limit order at the mid, never a market order
+        # Limit order at the mid, never a market order. If the mid didn't fill last time,
+        # creep 10% of the way toward the ask per try, capped at 30%: "at or near the mid".
+        step = min(bot.entry_attempts, 3) * 0.10
+        limit = round_price(unit + step * max(natural - unit, 0), bot.symbol)
         qty = math.floor(max_cost / (limit * 100)) if limit > 0 else 0
         if qty < 1:
             bot.note = f"too pricey (${limit * 100:,.0f})"
             return
         filled, price = self.market.submit(bot, legs, qty, limit, opening=True)
         if not filled:
-            bot.note = "entry not filled at mid, retrying"
+            bot.entry_attempts += 1
+            bot.note = f"entry not filled at ${limit:.2f}, retrying"
             return
+        bot.entry_attempts = 0
         cost = price * 100 * filled
         bot.cash -= cost
         bot.position = {"kind": kind, "legs": legs, "qty": filled, "entry_cost": cost,
