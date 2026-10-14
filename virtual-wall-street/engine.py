@@ -517,15 +517,26 @@ class AlpacaMarket:
                 legs=[OptionLegRequest(symbol=sym, ratio_qty=1, side=leg_order(side)[0],
                                        position_intent=leg_order(side)[1]) for sym, side in legs],
                 client_order_id=client_id)
-        order = self.trading.submit_order(request)
+        try:
+            order = self.trading.submit_order(request)
+        except Exception:
+            # A network hiccup can lose Alpaca's reply even though the order went through.
+            # Look it up by our own order ID before deciding it failed, so a bot never
+            # buys twice or forgets a position it holds.
+            order = self._find_order(client_id)
+            if order is None:
+                raise
         deadline = time.monotonic() + config.FILL_WAIT_SECONDS
         while _value(order.status) not in self.FINAL and time.monotonic() < deadline:
             time.sleep(1)
-            order = self.trading.get_order_by_id(order.id)
+            order = self._refresh(order)
         if _value(order.status) not in self.FINAL:
-            self.trading.cancel_order_by_id(order.id)
+            try:
+                self.trading.cancel_order_by_id(order.id)
+            except Exception:
+                pass  # it may have filled or been canceled meanwhile; the status check below tells
             for _ in range(10):
-                order = self.trading.get_order_by_id(order.id)
+                order = self._refresh(order)
                 if _value(order.status) in self.FINAL:
                     break
                 time.sleep(0.5)
@@ -533,6 +544,26 @@ class AlpacaMarket:
         if not filled or not order.filled_avg_price:
             return 0, None
         return filled, abs(float(order.filled_avg_price))
+
+    def _find_order(self, client_id, tries=4):
+        """Look up an order by the ID we gave it; None if Alpaca has no such order."""
+        for attempt in range(tries):
+            try:
+                return self.trading.get_order_by_client_id(client_id)
+            except Exception:
+                if attempt < tries - 1:
+                    time.sleep(2)
+        return None
+
+    def _refresh(self, order, tries=6):
+        """Re-read an order's status, riding out brief network hiccups."""
+        for attempt in range(tries):
+            try:
+                return self.trading.get_order_by_id(order.id)
+            except Exception:
+                if attempt == tries - 1:
+                    raise
+                time.sleep(2)
 
     def step(self, engine):
         engine.equity = float(self.trading.get_account().equity)

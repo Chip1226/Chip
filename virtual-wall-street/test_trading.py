@@ -395,6 +395,40 @@ class AlpacaTests(unittest.TestCase):
         self.assertEqual((request.side.value, request.position_intent.value), ("buy", "buy_to_open"))
         self.assertEqual((request.qty, request.limit_price), (2, 6.0))  # 2 x $600 within $1,500
 
+    def test_order_that_went_through_despite_a_timeout_is_recorded_once(self):
+        market, bot, engine = self.make()
+        placed = {}
+        real_submit = self.fake.submit_order
+
+        def flaky_submit(request):
+            placed[request.client_order_id] = real_submit(request)
+            raise TimeoutError("Read timed out")  # Alpaca got it, but the reply was lost
+
+        self.fake.submit_order = flaky_submit
+        self.fake.get_order_by_client_id = lambda cid: placed[cid]
+        with mock.patch("engine.time.sleep"):
+            market.step(engine)
+        self.assertEqual(len(placed), 1)
+        self.assertIsNotNone(bot.position)
+        self.assertEqual(bot.cash, 100)
+
+    def test_order_that_never_arrived_is_not_recorded(self):
+        market, bot, engine = self.make()
+
+        def failing_submit(request):
+            raise TimeoutError("Read timed out")
+
+        def not_found(cid):
+            raise LookupError("order not found")
+
+        self.fake.submit_order = failing_submit
+        self.fake.get_order_by_client_id = not_found
+        with mock.patch("engine.time.sleep"):
+            with self.assertRaises(TimeoutError):
+                market.step(engine)
+        self.assertIsNone(bot.position)
+        self.assertEqual(bot.cash, 300)
+
     def test_market_closed_places_no_orders(self):
         self.fake.is_open = False
         market, bot, engine = self.make()
