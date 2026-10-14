@@ -78,6 +78,12 @@ if [ -f "$GAME_DIR/web/icon.png" ] && command -v iconutil >/dev/null; then
   rm -rf "$(dirname "$ICONSET")"
 fi
 
+# Changing the app after it's built (the icon above) breaks its signature, and Macs
+# with Apple chips silently refuse to open apps with a broken signature. Re-sign it
+# locally ("ad-hoc": no Apple developer account needed) and clear download flags.
+xattr -cr "$APP" 2>/dev/null || true
+codesign --force --deep --sign - "$APP"
+
 echo ""
 echo "Done! \"Virtual Wall Street\" is in $APPS:"
 echo "  $APP"
