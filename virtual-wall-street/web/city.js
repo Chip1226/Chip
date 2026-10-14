@@ -338,7 +338,7 @@ class BotTower {
     this.mat.emissive.copy(target);
     this.mat.userData.base = kind ? 1.7 : 0.9;
     this.crownMat.color.set(bot.pnl > 0.005 ? COLORS.profit : bot.pnl < -0.005 ? COLORS.loss : 0x8090b0).multiplyScalar(2.4);
-    const key = JSON.stringify([bot.pnl, bot.note, bot.cash, bot.wins, bot.trades, kind]);
+    const key = JSON.stringify([bot.pnl, bot.note, bot.cash, bot.wins, bot.trades, kind, bot.manual_closes, bot.manual_pnl]);
     if (key !== this.labelKey) { this.labelKey = key; this.drawLabel(bot); }
   }
 
@@ -358,7 +358,8 @@ class BotTower {
     g.fillStyle = bot.position ? '#e6c84a' : '#93a0be';
     g.fillText(bot.note.length > 34 ? bot.note.slice(0, 33) + '…' : bot.note, c.width / 2, 274);
     g.fillStyle = '#93a0be';
-    g.fillText(`cash $${Math.round(bot.cash).toLocaleString()} | ${bot.wins}/${bot.trades} wins`, c.width / 2, 326);
+    const you = bot.manual_closes ? ` | you ${money(bot.manual_pnl)}` : '';
+    g.fillText(`cash $${Math.round(bot.cash).toLocaleString()} | ${bot.wins}/${bot.trades} wins${you}`, c.width / 2, 326);
     t.needsUpdate = true;
   }
 }
@@ -592,7 +593,12 @@ document.addEventListener('pointerlockchange', () => {
 
 const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyE', 'KeyQ', 'KeyC']);
 window.addEventListener('keydown', (e) => {
+  if (menu.index !== null) { // the bot menu is open: only Esc does anything
+    if (e.code === 'Escape') closeMenu();
+    return;
+  }
   if (e.target.closest && e.target.closest('button')) e.target.blur();
+  if (e.code === 'KeyX') { openMenu(); return; }
   if (e.code === 'Tab') { e.preventDefault(); travelTo(((nav.at ?? 6) + 1) % 7); return; }
   if (/^Digit[0-6]$/.test(e.code)) { const n = +e.code.slice(5); travelTo(n === 0 ? 6 : n - 1); return; }
   if (e.code === 'KeyR') { toggleOrbit(); return; }
@@ -712,7 +718,10 @@ function addFeed(e) {
     `<div class="item"><span style="color:${CSS[f.kind] || CSS.info}">${f.text}</span> <span style="color:var(--muted)">${f.bot}</span></div>`).join('');
 }
 
+let latestBots = [];
 function applyState(s) {
+  latestBots = s.bots;
+  if (menu.index !== null) renderMenu();
   daylight.market = s.market_open;
   if (!daylight.ready && s.market_open !== null) { // first reading: jump straight there, no sunset on load
     daylight.ready = true;
@@ -858,6 +867,75 @@ function cycleDaylight() {
   daylight.override = { auto: 'day', day: 'night', night: 'auto' }[daylight.override];
   el('skyLine').innerHTML = skyText();
 }
+
+
+// ---------- Bot menu (X): close a bot's trade by hand, or pause its new trades ----------
+
+const menu = { index: null };
+
+function nearestTower() {
+  if (nav.at !== null && nav.at < 6) return nav.at;
+  let best = null, bestD = 170;
+  towers.forEach((tw, i) => { const d = nav.pos.distanceTo(tw.pos); if (d < bestD) { bestD = d; best = i; } });
+  return best;
+}
+
+function toast(text) {
+  const t = el('toast');
+  t.textContent = text;
+  t.style.display = 'block';
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+
+function openMenu() {
+  const i = nearestTower();
+  if (i === null) { toast('Fly to a bot tower first (keys 1-6), then press X.'); return; }
+  if (!latestBots[i]) return;
+  menu.index = i;
+  if (document.pointerLockElement) document.exitPointerLock();
+  nav.keys.clear();
+  renderMenu();
+  el('botMenu').style.display = 'block';
+}
+
+function closeMenu() {
+  menu.index = null;
+  el('botMenu').style.display = 'none';
+}
+
+function renderMenu() {
+  const b = latestBots[menu.index];
+  if (!b) return closeMenu();
+  el('botMenuTitle').textContent = `${menu.index + 1}  ${b.name}`;
+  el('botMenuSub').textContent = `${b.symbol} ${b.style} | ${b.signal}${b.manual_pause ? ' | paused by you' : ''}`;
+  const pos = b.position;
+  const trade = el('botMenuTrade');
+  if (pos) {
+    trade.innerHTML = `Open trade: <b class="${pos.kind}">${pos.kind.toUpperCase()} ${pos.label}</b><br>Bot P/L so far: <b style="color:${pnlCss(b.pnl)}">${money(b.pnl)}</b>`;
+  } else {
+    trade.textContent = 'No open trade right now.';
+  }
+  const closeBtn = el('botMenuClose');
+  closeBtn.disabled = !pos || b.close_pending;
+  closeBtn.textContent = b.close_pending ? 'Closing... (limit orders near the mid)' : 'Close this trade now';
+  el('botMenuPause').textContent = b.manual_pause ? 'Resume this bot (allow new trades)' : 'Pause this bot (no new trades; open trade keeps its exits)';
+}
+
+async function botAction(action) {
+  if (menu.index === null) return;
+  try {
+    const r = await fetch(`/api/bot/${menu.index}/${action}`, { method: 'POST', headers: { 'X-VWS': '1' } });
+    const reply = await r.json();
+    toast(reply.message);
+  } catch (err) {
+    toast('Could not reach the game. Is it still running?');
+  }
+}
+
+el('botMenuClose').addEventListener('click', () => { botAction('close'); });
+el('botMenuPause').addEventListener('click', () => { botAction('pause'); });
+el('botMenuCancel').addEventListener('click', closeMenu);
 
 // ---------- Main loop ----------
 

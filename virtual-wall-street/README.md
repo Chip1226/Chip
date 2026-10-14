@@ -105,9 +105,12 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 | R | Circle around the building you're at, to see it from behind |
 | P | Pause / resume trading |
 | N | Preview day / night (press again to cycle back to following the market) |
+| X | Bot menu for the tower you're at: close its trade now, or pause / resume its new trades |
 | H | Hide / show the key legend at the bottom of the screen |
 
-The arrow keys alone are enough to get around; the legend along the bottom of the screen lists every key. You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
+The arrow keys alone are enough to get around; the legend along the bottom of the screen lists every key. You can also click a building in the list at the top right to fly there.
+
+**Stepping in by hand (X):** fly to a bot's tower and press X. **Close this trade now** sells it with the same careful limit orders the bots use (it works even while trading is paused). **Pause this bot** stops it opening new trades; an open trade still keeps its take-profit and stop-loss. Your closes show as MANUAL CLOSE and are counted apart from the bot's own wins and trades (the label shows "you +$…"), so you can tell whether stepping in helps. Best used sparingly: every override makes the bots' record tell you less about the strategy. Buildings are solid, so you can't fly through walls.
 
 The 3D view runs on `http://localhost:8765` and only your own computer can reach it. Three.js (the 3D library, MIT license) is included in `web/vendor`, so nothing extra needs installing or downloading. The 2D window (`python main.py`) still works too; it needs one extra library: `pip install -r requirements-2d.txt`.
 

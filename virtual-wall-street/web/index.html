@@ -55,6 +55,19 @@
     color: var(--text); background: rgba(255, 90, 106, 0.14); border: 1px solid rgba(255, 90, 106, 0.5); }
   #stopBtn:hover { background: rgba(255, 90, 106, 0.3); }
   #stopped { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; text-align: center; max-width: 440px; }
+  #botMenu { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; width: 360px; padding: 18px 20px; }
+  #botMenu h3 { margin: 0 0 4px; font-size: 18px; }
+  #botMenu .sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  #botMenu .trade { font-size: 14px; margin-bottom: 14px; }
+  #botMenu button { display: block; width: 100%; margin-top: 8px; padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    font: 600 14px system-ui, sans-serif; color: var(--text); background: rgba(120, 160, 255, 0.12);
+    border: 1px solid rgba(120, 160, 255, 0.35); text-align: left; }
+  #botMenu button:hover:not(:disabled) { background: rgba(120, 160, 255, 0.25); }
+  #botMenu button.danger { background: rgba(255, 90, 106, 0.14); border-color: rgba(255, 90, 106, 0.5); }
+  #botMenu button.danger:hover:not(:disabled) { background: rgba(255, 90, 106, 0.3); }
+  #botMenu button:disabled { opacity: 0.45; cursor: default; }
+  #botMenu .note { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  #toast { bottom: 120px; left: 50%; transform: translateX(-50%); display: none; font-size: 14px; }
   #crosshair { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
     border-radius: 50%; background: rgba(255, 255, 255, 0.6); display: none; pointer-events: none; }
   #offline { top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; color: var(--red); }
@@ -95,9 +108,20 @@
   <span class="item"><kbd>R</kbd> circle building</span>
   <span class="item"><kbd>P</kbd> pause trading</span>
   <span class="item"><kbd>N</kbd> preview day / night</span>
+  <span class="item"><kbd>X</kbd> bot menu: close trade / pause</span>
   <span class="item always"><kbd>H</kbd> hide keys</span>
 </div>
 <div id="hint" class="panel">Use the arrow keys to walk and turn<br><span style="color:var(--muted);font-size:13px">click to look around with the mouse, or press 0-6 to travel</span></div>
+<div id="botMenu" class="panel" role="dialog" aria-modal="true">
+  <h3 id="botMenuTitle"></h3>
+  <div class="sub" id="botMenuSub"></div>
+  <div class="trade" id="botMenuTrade"></div>
+  <button class="danger" id="botMenuClose"></button>
+  <button id="botMenuPause"></button>
+  <button id="botMenuCancel">Cancel (Esc)</button>
+  <div class="note">Your closes are logged as MANUAL CLOSE and counted apart from the bot's own record, so you can see whether stepping in helps.</div>
+</div>
+<div id="toast" class="panel"></div>
 <div id="stopped" class="panel"><b>The game is stopped.</b><br>
   <span style="color:var(--muted)">The bots are no longer trading. Open the Virtual Wall Street app (or run python3 city.py) to start again. You can close this tab.</span></div>
 <div id="offline" class="panel">Lost connection to the trading engine. Is <b>python city.py</b> still running?</div>

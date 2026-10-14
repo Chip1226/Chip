@@ -265,6 +265,43 @@ class EngineRuleTests(unittest.TestCase):
         self.assertEqual(self.bot.flip_since, flip_started)
         self.assertIsNotNone(self.bot.position, "flip exits wait for a full check")
 
+    def test_manual_close_is_logged_and_counted_apart(self):
+        self.engine.trade_all()
+        self.bot.manual_close = True
+        self.engine.manage_positions()  # a quick check is enough
+        self.assertIsNone(self.bot.position)
+        self.assertFalse(self.bot.manual_close)
+        self.assertEqual((self.bot.manual_closes, self.bot.trades), (1, 0), "not counted as the bot's trade")
+        self.assertIn("MANUAL CLOSE", list(self.engine.events.queue)[-1][1])
+
+    def test_manual_close_works_even_while_trading_is_paused(self):
+        self.engine.trade_all()
+        self.engine.paused = True
+        self.bot.manual_close = True
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+
+    def test_unfilled_manual_close_keeps_trying(self):
+        self.engine.trade_all()
+        self.bot.manual_close = True
+        self.market.fill = False
+        self.engine.manage_positions()
+        self.assertTrue(self.bot.manual_close)
+        self.assertIsNotNone(self.bot.position)
+
+    def test_pausing_a_bot_blocks_new_trades_only(self):
+        self.bot.manual_pause = True
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position)
+        self.assertIn("paused by you", self.bot.note)
+        self.bot.manual_pause = False
+        self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position)
+        self.bot.manual_pause = True
+        self.market.set_mid(500, 8.0)
+        self.engine.trade_all()
+        self.assertIsNone(self.bot.position, "an open trade still takes its exits while paused")
+
     def test_no_entries_right_after_open(self):
         self.market.clock = datetime(2026, 10, 13, 9, 35)
         self.engine.trade_all()
@@ -467,6 +504,10 @@ class AlpacaTests(unittest.TestCase):
         engine.save()
         market2, bot2, engine2 = self.make()  # restart: loads bot_state.json
         self.assertEqual(bot2.position["label"], "500/505C 10/30")
+        bot2.manual_pause = True
+        engine2.save()
+        _, bot3, _ = self.make()
+        self.assertTrue(bot3.manual_pause, "pause survives a restart")
         quote = self.fake.snapshots[bot2.position["legs"][0][0]].latest_quote
         quote.bid_price, quote.ask_price = 7.95, 8.05  # +100%
         market2.step(engine2)

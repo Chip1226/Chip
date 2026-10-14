@@ -56,6 +56,8 @@ def snapshot(engine, log, since):
             "pnl": round(b.pnl, 2), "pnl_pct": b.pnl / b.budget if b.budget else 0,
             "cash": round(b.cash, 2), "budget": b.budget, "note": b.note,
             "wins": b.wins, "trades": b.trades,
+            "manual_pause": b.manual_pause, "close_pending": b.manual_close,
+            "manual_closes": b.manual_closes, "manual_pnl": round(b.manual_pnl, 2),
             "position": {"kind": pos["kind"], "label": pos["label"]} if pos else None,
         })
     news = None
@@ -102,11 +104,32 @@ class Handler(SimpleHTTPRequestHandler):
         elif path == "/api/pause":
             self.engine.paused = not self.engine.paused
             self.send_json({"paused": self.engine.paused})
+        elif path.startswith("/api/bot/"):
+            self.bot_action(path)
         elif path == "/api/quit":
             self.send_json({"stopping": True})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
             self.send_error(404)
+
+    def bot_action(self, path):
+        """/api/bot/<n>/close or /api/bot/<n>/pause, n = the building number minus one."""
+        parts = path.strip("/").split("/")
+        if len(parts) != 4 or not parts[2].isdigit() or int(parts[2]) >= len(self.engine.bots):
+            return self.send_error(404)
+        bot, action = self.engine.bots[int(parts[2])], parts[3]
+        if action == "close":
+            if not bot.position:
+                return self.send_json({"ok": False, "message": f"{bot.name} has no open trade."})
+            # The engine closes it at its next check (within about 5 seconds while the market
+            # is open), using the same careful limit orders as the bots' own exits.
+            bot.manual_close = True
+            return self.send_json({"ok": True, "message": f"Closing {bot.name}'s trade..."})
+        if action == "pause":
+            bot.manual_pause = not bot.manual_pause
+            word = "paused: no new trades" if bot.manual_pause else "resumed"
+            return self.send_json({"ok": True, "paused": bot.manual_pause, "message": f"{bot.name} {word}."})
+        self.send_error(404)
 
     def end_headers(self):
         if not self.path.startswith("/vendor/"):

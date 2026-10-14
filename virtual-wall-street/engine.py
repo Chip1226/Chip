@@ -46,6 +46,11 @@ class Bot:
         self.exit_attempts = 0
         self.entry_attempts = 0  # unfilled entry tries for the current signal
         self.retry_after = None  # after a rejected order, wait before trying new entries
+        # Things you do by hand from the city (X key), kept apart from the bot's own record
+        self.manual_pause = False   # no new trades for this bot until you resume it
+        self.manual_close = False   # close its open trade at the next check
+        self.manual_closes = 0
+        self.manual_pnl = 0.0
         self.flip_since = None  # when the signal started pointing against the open trade
         self.trades = 0
         self.wins = 0
@@ -73,7 +78,8 @@ class Bot:
     def state(self):
         return {"cash": self.cash, "position": self.position, "position_value": self.position_value,
                 "cooldown_until": self.cooldown_until.isoformat() if self.cooldown_until else None,
-                "trades": self.trades, "wins": self.wins}
+                "trades": self.trades, "wins": self.wins, "manual_pause": self.manual_pause,
+                "manual_closes": self.manual_closes, "manual_pnl": self.manual_pnl}
 
     def load_state(self, s):
         self.cash = s["cash"]
@@ -82,6 +88,9 @@ class Bot:
         self.cooldown_until = datetime.fromisoformat(s["cooldown_until"]) if s["cooldown_until"] else None
         self.trades = s["trades"]
         self.wins = s["wins"]
+        self.manual_pause = s.get("manual_pause", False)
+        self.manual_closes = s.get("manual_closes", 0)
+        self.manual_pnl = s.get("manual_pnl", 0.0)
 
 
 def make_bots():
@@ -95,7 +104,7 @@ def days_to_earnings(bot, today):
 
 
 EXIT_LABELS = {"take_profit": "TAKE PROFIT", "stop_loss": "STOP LOSS", "expiring": "TIME STOP",
-               "thesis_broken": "SIGNAL FLIP", "earnings": "PRE-EARNINGS"}
+               "thesis_broken": "SIGNAL FLIP", "earnings": "PRE-EARNINGS", "manual": "MANUAL CLOSE"}
 
 
 class Engine(threading.Thread):
@@ -216,8 +225,11 @@ class Engine(threading.Thread):
         minutes_left = (datetime.combine(today, MARKET_CLOSE) - now).total_seconds() / 60
         to_earnings = days_to_earnings(bot, today)
         breaking = self.news.blocked(bot.symbol, now) if self.news and bot.signal_name != "news" else None
+        bot.manual_close = False  # nothing open to close
         if self.paused:
             bot.note = "paused"
+        elif bot.manual_pause:
+            bot.note = "paused by you (X to resume)"
         elif bot.signal_name == "news" and not self.news:
             bot.note = "news off (see README)"
         elif bot.loss_room() < 1:
@@ -308,6 +320,9 @@ class Engine(threading.Thread):
         bot.position_value = mid * 100 * pos["qty"]
         change = bot.position_value / pos["entry_cost"] - 1
         bot.note = f"{pos['qty']}x {pos['label']} {change:+.0%}"
+        if bot.manual_close:  # you asked to close it: that wins over everything, even pause
+            self.close_position(bot, "manual", quotes, mid)
+            return
         if self.paused:
             return
 
@@ -363,8 +378,13 @@ class Engine(threading.Thread):
             bot.exit_attempts = 0
             bot.flip_since = None
             bot.cooldown_until = self.market.now() + timedelta(minutes=bot.spec["cooldown_minutes"])
-        bot.trades += 1
-        bot.wins += profit > 0
+            bot.manual_close = False
+        if reason == "manual":  # counted apart, so you can see whether your overrides help
+            bot.manual_closes += 1
+            bot.manual_pnl += profit
+        else:
+            bot.trades += 1
+            bot.wins += profit > 0
         bot.note = f"{EXIT_LABELS[reason].lower()} {profit:+,.0f}"
         self.emit(bot, f"{EXIT_LABELS[reason]} {profit:+,.0f}", "profit" if profit > 0 else "loss")
 
@@ -644,7 +664,7 @@ class AlpacaMarket:
         if not clock.is_open:
             engine.status = f"Market closed - opens {clock.next_open:%a %b %d %I:%M %p} ET"
             for bot in engine.bots:
-                bot.note = "market closed"
+                bot.note = "close requested: waits for the open" if bot.manual_close else "market closed"
             return
         engine.status = f"Market open - checking every {self.interval}s"
         if engine.news:
