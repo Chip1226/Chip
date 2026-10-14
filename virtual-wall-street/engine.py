@@ -105,6 +105,8 @@ class Engine(threading.Thread):
         self.bots = bots
         self.news = news  # NewsWatcher, or None when news is off
         self.news_error = ""
+        self.trade_error = ""
+        self.full_error = ""
         self.busy = threading.Lock()
         self.events = queue.Queue()  # (bot, text, kind) -> floating text and beam
         self.paused = False
@@ -124,16 +126,41 @@ class Engine(threading.Thread):
         self.events.put((bot, text, kind))
 
     def run(self):
+        # Markets with a fast_interval (Alpaca) also check open trades between full checks,
+        # so take-profits and stop-losses react within seconds instead of a minute.
+        fast = getattr(self.market, "fast_interval", None)
+        next_full = 0.0
         while True:
             started = time.monotonic()
+            full = fast is None or started >= next_full
             with self.busy:  # held for a whole step, so stopping never cuts an order in half
+                self.trade_error = ""
                 try:
-                    self.market.step(self)
+                    if full:
+                        self.market.step(self)
+                    else:
+                        self.market.quick_step(self)
                     self.save()
-                    self.error = ""
+                    problem = self.trade_error  # one bot's problem, if any
                 except Exception as e:  # keep running; show the problem on screen
-                    self.error = f"{type(e).__name__}: {e}"[:140]
-            time.sleep(max(0, self.market.interval - (time.monotonic() - started)))
+                    problem = f"{type(e).__name__}: {e}"[:140]
+                if full:
+                    self.full_error = problem
+                # A quick check's own problem shows first; otherwise keep the last full check's.
+                self.error = problem or self.full_error
+            if full:
+                next_full = started + self.market.interval
+            time.sleep(max(0, (fast or self.market.interval) - (time.monotonic() - started)))
+
+    def manage_positions(self):
+        """Quick check between full checks: only open trades, only their exit rules."""
+        for bot in self.bots:
+            if not bot.position:
+                continue
+            try:
+                self.manage_open(bot, None, quick=True)
+            except Exception as e:
+                self.trade_error = f"{bot.name}: {type(e).__name__}: {e}"[:160]
 
     def stop(self, timeout=90):
         """Wait for the current step (an order waiting to fill, say) to finish, then hold.
@@ -270,7 +297,7 @@ class Engine(threading.Thread):
         bot.note = f"{filled}x {label}"
         self.emit(bot, f"BUY {kind.upper()} -${cost:,.0f}", kind)
 
-    def manage_open(self, bot, signal):
+    def manage_open(self, bot, signal, quick=False):
         pos = bot.position
         quotes = self.market.quotes([sym for sym, _ in pos["legs"]])
         if any(sym not in quotes for sym, _ in pos["legs"]):
@@ -287,11 +314,14 @@ class Engine(threading.Thread):
         s = bot.spec
         now = self.market.now()
         today = now.date()
-        if signal is not None and signal != pos["kind"]:
-            bot.flip_since = bot.flip_since or now
-        else:
-            bot.flip_since = None
-        flip_confirmed = bot.flip_since and now - bot.flip_since >= timedelta(minutes=s["flip_confirm_minutes"])
+        # The signal only updates on full checks; quick checks leave the flip tracking alone.
+        if not quick:
+            if signal is not None and signal != pos["kind"]:
+                bot.flip_since = bot.flip_since or now
+            else:
+                bot.flip_since = None
+        flip_confirmed = (not quick and bot.flip_since
+                          and now - bot.flip_since >= timedelta(minutes=s["flip_confirm_minutes"]))
         to_earnings = days_to_earnings(bot, today)
         last_day_before = 3 if today.weekday() == 4 else 1  # Friday: Monday report is 3 days out
         if to_earnings is not None and 0 <= to_earnings <= last_day_before:
@@ -438,6 +468,7 @@ class AlpacaMarket:
 
     name = "ALPACA PAPER TRADING - real option prices, fake money"
     interval = config.CHECK_INTERVAL_SECONDS
+    fast_interval = config.POSITION_CHECK_SECONDS
     state_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_state.json")
     FINAL = {"filled", "canceled", "expired", "rejected", "done_for_day", "stopped", "suspended"}
 
@@ -597,6 +628,13 @@ class AlpacaMarket:
                 if attempt == tries - 1:
                     raise
                 time.sleep(2)
+
+    def quick_step(self, engine):
+        """Between full checks: watch open trades' quotes for their exits, nothing else."""
+        now = self.now()
+        if engine.market_open is not True or not (MARKET_OPEN <= now.time() < MARKET_CLOSE):
+            return
+        engine.manage_positions()
 
     def step(self, engine):
         engine.equity = float(self.trading.get_account().equity)

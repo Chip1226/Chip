@@ -67,8 +67,12 @@ SKIP_CLOSE_MINUTES = 15
 # (With 1-minute bars the signals flip constantly and the bid/ask spread eats every trade.)
 SIGNAL_BAR_MINUTES = 15
 
-# Alpaca mode: how often bots check prices and manage open trades.
+# Alpaca mode: how often bots do a full check (signals, new trades, news).
+# Signals use 15-minute bars from a feed that updates once a minute, so faster gains nothing.
 CHECK_INTERVAL_SECONDS = 60
+# ...and how often open trades check their quotes for take-profit / stop-loss in between.
+# About one request per open trade, well inside Alpaca's ~200 requests/minute free limit.
+POSITION_CHECK_SECONDS = 5
 # How long a limit order may sit unfilled before it's canceled and retried next check.
 FILL_WAIT_SECONDS = 20
 

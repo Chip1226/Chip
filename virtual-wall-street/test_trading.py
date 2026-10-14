@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import time
 import unittest
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
@@ -244,6 +245,26 @@ class EngineRuleTests(unittest.TestCase):
         self.assertIsNone(self.bot.position)          # ...but the second bot still got out
         self.assertIn("wash trade", engine.trade_error)
 
+    def test_quick_check_takes_profit_without_a_full_check(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 8.0)  # +100%
+        self.engine.manage_positions()
+        self.assertIsNone(self.bot.position)
+        self.assertEqual(self.bot.wins, 1)
+
+    def test_quick_check_never_opens_trades_or_touches_signal_tracking(self):
+        self.engine.manage_positions()
+        self.assertEqual(self.market.orders, [], "no entries from a quick check")
+        self.engine.trade_all()
+        self.market.closes_ = DOWN_MIN
+        self.engine.trade_all()  # full check: the signal flipped, the clock starts
+        flip_started = self.bot.flip_since
+        self.assertIsNotNone(flip_started)
+        self.market.clock += timedelta(hours=3)
+        self.engine.manage_positions()
+        self.assertEqual(self.bot.flip_since, flip_started)
+        self.assertIsNotNone(self.bot.position, "flip exits wait for a full check")
+
     def test_no_entries_right_after_open(self):
         self.market.clock = datetime(2026, 10, 13, 9, 35)
         self.engine.trade_all()
@@ -309,6 +330,30 @@ class EngineRuleTests(unittest.TestCase):
         Engine(self.market, [bot]).trade_all()
         self.assertIsNone(bot.position)
         self.assertIn("too pricey", bot.note)
+
+
+class LoopTests(unittest.TestCase):
+    def test_quick_checks_run_between_full_checks_and_errors_stay_visible(self):
+        class TimedMarket:
+            name, interval, fast_interval = "t", 0.4, 0.05
+
+            def __init__(self):
+                self.full = self.quick = 0
+
+            def step(self, engine):
+                self.full += 1
+                engine.trade_error = "Bot: something went wrong"
+
+            def quick_step(self, engine):
+                self.quick += 1
+
+        market = TimedMarket()
+        engine = Engine(market, [])
+        engine.start()
+        time.sleep(1.0)
+        self.assertIn(market.full, (2, 3, 4))
+        self.assertGreater(market.quick, market.full * 3)
+        self.assertEqual(engine.error, "Bot: something went wrong", "still shown after quick checks")
 
 
 class DemoTests(unittest.TestCase):
@@ -474,6 +519,14 @@ class AlpacaTests(unittest.TestCase):
         self.assertEqual(bot.cash, 300)
         self.assertIn("TimeoutError", engine.trade_error)
         self.assertIsNotNone(bot.retry_after, "waits before trying again")
+
+    def test_quick_step_skipped_when_market_closed(self):
+        market, bot, engine = self.make()
+        market.step(engine)
+        engine.market_open = False
+        with mock.patch.object(engine, "manage_positions") as manage:
+            market.quick_step(engine)
+        manage.assert_not_called()
 
     def test_market_closed_places_no_orders(self):
         self.fake.is_open = False
