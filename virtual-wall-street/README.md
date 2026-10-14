@@ -61,7 +61,7 @@ If the key is wrong or Claude can't be reached, the error shows in red and every
 
 ## Make it a Mac app (no Terminal needed)
 
-Run this once, in Terminal, from this folder:
+Keep the game folder in your **home folder** (for example `~/virtual-wall-street`), not in Downloads, Desktop or Documents: macOS privacy protection stops apps from reading those folders, so the app couldn't start the game from there. Then run this once, in Terminal, from the game folder:
 
 ```
 bash make_app.sh

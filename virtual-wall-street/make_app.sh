@@ -22,6 +22,20 @@ if ! "$PYTHON" -c "import alpaca, anthropic, dotenv" 2>/dev/null; then
   exit 1
 fi
 
+# macOS privacy protection blocks apps from reading Downloads, Desktop and Documents
+# without permission, so the app couldn't start a game kept there. Terminal usually has
+# that permission already, which is why running city.py by hand still works.
+case "$GAME_DIR" in
+  "$HOME/Downloads"*|"$HOME/Desktop"*|"$HOME/Documents"*)
+    echo "This folder is inside Downloads, Desktop or Documents, which macOS protects:"
+    echo "the app wouldn't be allowed to start the game from here. Move it to your"
+    echo "home folder first, then run this script again from there:"
+    echo "  mv \"$GAME_DIR\" ~/virtual-wall-street"
+    echo "  cd ~/virtual-wall-street && bash make_app.sh"
+    exit 1
+    ;;
+esac
+
 mkdir -p "$APPS"
 rm -rf "$APP"
 
