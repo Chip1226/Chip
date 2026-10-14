@@ -109,7 +109,7 @@ This opens the same game as a 3D night city in your web browser (Chrome, Edge, S
 
 The arrow keys alone are enough to get around; the legend along the bottom of the screen lists every key. You can also click a building in the list at the top right to fly there. Buildings are solid, so you can't fly through walls.
 
-The 3D view runs on `http://localhost:8765` and only your own computer can reach it. Three.js (the 3D library, MIT license) is included in `web/vendor`, so nothing extra needs installing or downloading. The 2D window (`python main.py`) still works too.
+The 3D view runs on `http://localhost:8765` and only your own computer can reach it. Three.js (the 3D library, MIT license) is included in `web/vendor`, so nothing extra needs installing or downloading. The 2D window (`python main.py`) still works too; it needs one extra library: `pip install -r requirements-2d.txt`.
 
 ## Two modes
 
