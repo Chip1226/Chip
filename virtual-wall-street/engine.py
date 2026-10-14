@@ -52,6 +52,9 @@ class Bot:
         self.manual_closes = 0
         self.manual_pnl = 0.0
         self.flip_since = None  # when the signal started pointing against the open trade
+        # Take profit / stop loss must hold on several checks in a row before the bot acts,
+        # so one bad quote or a momentary spike can't close a trade: [reason, checks so far]
+        self.exit_streak = [None, 0]
         self.trades = 0
         self.wins = 0
         self.price = None
@@ -104,7 +107,29 @@ def days_to_earnings(bot, today):
 
 
 EXIT_LABELS = {"take_profit": "TAKE PROFIT", "stop_loss": "STOP LOSS", "expiring": "TIME STOP",
-               "thesis_broken": "SIGNAL FLIP", "earnings": "PRE-EARNINGS", "manual": "MANUAL CLOSE"}
+               "thesis_broken": "SIGNAL FLIP", "earnings": "PRE-EARNINGS", "manual": "MANUAL CLOSE",
+               "price_stop": "PRICE STOP"}
+
+
+def quotes_look_broken(quotes, legs):
+    """True when a leg's quote can't be trusted: no ask, crossed, or an absurdly wide spread.
+
+    A bid of 0 with a small ask is real (a nearly worthless option), not broken.
+    """
+    for sym, _ in legs:
+        bid, ask = quotes[sym]
+        if ask <= 0 or ask < bid or ask - bid > max(0.30 * (bid + ask) / 2, 0.15):
+            return True
+    return False
+
+
+def price_moved_against(pos, price, limit):
+    """For trades with a price stop: has the stock moved `limit` (a fraction) against the trade?"""
+    start = pos.get("underlying_entry")
+    if not start or price is None or not limit:
+        return False
+    move = price / start - 1
+    return move <= -limit if pos["kind"] == "call" else move >= limit
 
 
 class Engine(threading.Thread):
@@ -303,7 +328,9 @@ class Engine(threading.Thread):
         cost = price * 100 * filled
         bot.cash -= cost
         bot.position = {"kind": kind, "legs": legs, "qty": filled, "entry_cost": cost,
-                        "expiration": expiration.isoformat(), "label": label}
+                        "expiration": expiration.isoformat(), "label": label,
+                        "underlying_entry": bot.price}
+        bot.exit_streak = [None, 0]
         bot.position_value = cost
         bot.exit_attempts = 0
         bot.note = f"{filled}x {label}"
@@ -339,12 +366,31 @@ class Engine(threading.Thread):
                           and now - bot.flip_since >= timedelta(minutes=s["flip_confirm_minutes"]))
         to_earnings = days_to_earnings(bot, today)
         last_day_before = 3 if today.weekday() == 4 else 1  # Friday: Monday report is 3 days out
+        # Spreads with a price stop are judged by the stock, not by their two-leg quote,
+        # which swings a lot on wide bid/ask spreads. bot.price is the latest one-minute
+        # close, so a single odd tick can't trigger it. The option-quote stop stays on
+        # as a wider backstop. Trades opened before this existed use the normal stop.
+        price_stop = s.get("price_stop") if pos.get("underlying_entry") else None
+        stop_line = s["backstop_loss"] if price_stop else s["stop_loss"]
+        # Take profit and stop loss only count on believable quotes, and must hold
+        # `confirm_checks` checks in a row. A broken quote neither counts nor resets.
+        quote_exit = None
+        if change >= s["take_profit"]:
+            quote_exit = "take_profit"
+        elif change <= -stop_line:
+            quote_exit = "stop_loss"
+        if not quotes_look_broken(quotes, pos["legs"]):
+            if quote_exit and bot.exit_streak[0] == quote_exit:
+                bot.exit_streak[1] += 1
+            else:
+                bot.exit_streak = [quote_exit, 1 if quote_exit else 0]
+        quote_confirmed = bot.exit_streak[0] and bot.exit_streak[1] >= s["confirm_checks"]
         if to_earnings is not None and 0 <= to_earnings <= last_day_before:
             reason = "earnings"
-        elif change >= s["take_profit"]:
-            reason = "take_profit"
-        elif change <= -s["stop_loss"]:
-            reason = "stop_loss"
+        elif quote_confirmed:
+            reason = bot.exit_streak[0]
+        elif price_moved_against(pos, bot.price, price_stop):
+            reason = "price_stop"
         elif (date.fromisoformat(pos["expiration"]) - today).days <= s["exit_dte"]:
             reason = "expiring"
         elif flip_confirmed:
@@ -377,6 +423,7 @@ class Engine(threading.Thread):
             bot.position_value = 0.0
             bot.exit_attempts = 0
             bot.flip_since = None
+            bot.exit_streak = [None, 0]
             bot.cooldown_until = self.market.now() + timedelta(minutes=bot.spec["cooldown_minutes"])
             bot.manual_close = False
         if reason == "manual":  # counted apart, so you can see whether your overrides help

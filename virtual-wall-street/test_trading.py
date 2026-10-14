@@ -22,6 +22,7 @@ DOWN = [130 - i * 0.5 for i in range(60)]
 # Same shapes as one-minute closes, for the engine (which reads every 15th close)
 UP_MIN = [100 + i * 0.5 / 15 for i in range(60 * 15)]
 DOWN_MIN = [130 - i * 0.5 / 15 for i in range(60 * 15)]
+CONFIRM = config.RULES["confirm_checks"]  # checks in a row a take profit / stop loss must hold
 
 
 class SignalTests(unittest.TestCase):
@@ -155,6 +156,9 @@ class EngineRuleTests(unittest.TestCase):
     def test_take_profit(self):
         self.engine.trade_all()
         self.market.set_mid(500, 8.0)  # spread worth 8 - 4 = 4.00, +100%
+        for _ in range(CONFIRM - 1):
+            self.engine.trade_all()
+        self.assertIsNotNone(self.bot.position, "not confirmed yet")
         self.engine.trade_all()
         self.assertIsNone(self.bot.position)
         self.assertAlmostEqual(self.bot.pnl, 200)
@@ -163,7 +167,8 @@ class EngineRuleTests(unittest.TestCase):
     def test_stop_loss(self):
         self.engine.trade_all()
         self.market.set_mid(500, 5.0)  # spread worth 1.00, -50%
-        self.engine.trade_all()
+        for _ in range(CONFIRM):
+            self.engine.trade_all()
         self.assertIsNone(self.bot.position)
         self.assertAlmostEqual(self.bot.pnl, -100)
 
@@ -183,7 +188,8 @@ class EngineRuleTests(unittest.TestCase):
     def test_cooldown_blocks_reentry(self):
         self.engine.trade_all()
         self.market.set_mid(500, 8.0)
-        self.engine.trade_all()
+        for _ in range(CONFIRM):
+            self.engine.trade_all()
         self.engine.trade_all()
         self.assertIsNone(self.bot.position)
         self.market.clock += timedelta(minutes=31)
@@ -194,8 +200,8 @@ class EngineRuleTests(unittest.TestCase):
         self.engine.trade_all()
         self.market.set_mid(500, 8.0)
         self.market.fill = False
-        self.engine.trade_all()
-        self.engine.trade_all()
+        for _ in range(CONFIRM + 1):
+            self.engine.trade_all()
         first, second = self.market.orders[1][2], self.market.orders[2][2]
         self.assertLess(second, first)  # closer to the bid each retry
         self.assertIsNotNone(self.bot.position)
@@ -240,7 +246,8 @@ class EngineRuleTests(unittest.TestCase):
             return real_submit(bot, *args, **kwargs)
 
         self.market.submit = submit
-        engine.trade_all()
+        for _ in range(CONFIRM):
+            engine.trade_all()
         self.assertIsNotNone(first.position)          # its exit failed...
         self.assertIsNone(self.bot.position)          # ...but the second bot still got out
         self.assertIn("wash trade", engine.trade_error)
@@ -248,7 +255,8 @@ class EngineRuleTests(unittest.TestCase):
     def test_quick_check_takes_profit_without_a_full_check(self):
         self.engine.trade_all()
         self.market.set_mid(500, 8.0)  # +100%
-        self.engine.manage_positions()
+        for _ in range(CONFIRM):
+            self.engine.manage_positions()
         self.assertIsNone(self.bot.position)
         self.assertEqual(self.bot.wins, 1)
 
@@ -299,8 +307,54 @@ class EngineRuleTests(unittest.TestCase):
         self.assertIsNotNone(self.bot.position)
         self.bot.manual_pause = True
         self.market.set_mid(500, 8.0)
-        self.engine.trade_all()
+        for _ in range(CONFIRM):
+            self.engine.trade_all()
         self.assertIsNone(self.bot.position, "an open trade still takes its exits while paused")
+
+    def test_one_noisy_check_does_not_stop_out(self):
+        self.engine.trade_all()
+        self.market.set_mid(500, 5.0)  # -50% for a moment...
+        self.engine.manage_positions()
+        self.engine.manage_positions()
+        self.market.set_mid(500, 6.0)  # ...then back
+        for _ in range(CONFIRM):
+            self.engine.manage_positions()
+        self.assertIsNotNone(self.bot.position)
+        self.assertEqual(self.bot.exit_streak, [None, 0])
+
+    def test_broken_quotes_never_trigger_exits(self):
+        self.engine.trade_all()
+        for c in self.market.chain_:
+            if c.strike == 500:
+                c.bid, c.ask = 0.0, 9.0  # $9 wide: someone pulled their quote
+        for _ in range(CONFIRM * 2):
+            self.engine.manage_positions()
+        self.assertIsNotNone(self.bot.position)
+
+    def test_spread_price_stop_follows_the_stock(self):
+        bot = spread_bot(price_stop=0.01)
+        engine = Engine(self.market, [bot])
+        engine.trade_all()
+        start = bot.position["underlying_entry"]
+        self.assertEqual(start, UP_MIN[-1])
+        # The spread's quote says -50%, but the stock hasn't moved: no stop (backstop is -70%)
+        self.market.set_mid(500, 5.0)
+        for _ in range(CONFIRM + 1):
+            engine.trade_all()
+        self.assertIsNotNone(bot.position)
+        # The stock drops 1% against the call: out, on the next full check
+        self.market.closes_ = UP_MIN + [start * 0.99]
+        engine.trade_all()
+        self.assertIsNone(bot.position)
+        self.assertIn("PRICE STOP", list(engine.events.queue)[-1][1])
+
+    def test_spread_price_stop_ignores_moves_in_its_favor(self):
+        bot = spread_bot(price_stop=0.01)
+        engine = Engine(self.market, [bot])
+        engine.trade_all()
+        self.market.closes_ = UP_MIN + [bot.position["underlying_entry"] * 1.02]
+        engine.trade_all()
+        self.assertIsNotNone(bot.position)
 
     def test_no_entries_right_after_open(self):
         self.market.clock = datetime(2026, 10, 13, 9, 35)
@@ -347,7 +401,8 @@ class EngineRuleTests(unittest.TestCase):
             if bot.position:
                 for c in self.market.chain_:
                     c.bid, c.ask = 0.0, 0.05  # wipe out: worth nothing
-                engine.trade_all()
+                for _ in range(CONFIRM):
+                    engine.trade_all()
                 self.market.chain_ = [contract(c.strike, c.mid, c.delta) for c in CHAIN]
                 self.market.clock += timedelta(hours=1)
         self.assertGreaterEqual(bot.pnl, -150 - 1e-9)
@@ -510,7 +565,8 @@ class AlpacaTests(unittest.TestCase):
         self.assertTrue(bot3.manual_pause, "pause survives a restart")
         quote = self.fake.snapshots[bot2.position["legs"][0][0]].latest_quote
         quote.bid_price, quote.ask_price = 7.95, 8.05  # +100%
-        market2.step(engine2)
+        for _ in range(CONFIRM):
+            market2.step(engine2)
         close = self.fake.requests[-1]
         self.assertEqual(close.limit_price, -4.0)  # negative = credit
         self.assertEqual([l.position_intent.value for l in close.legs], ["sell_to_close", "buy_to_close"])

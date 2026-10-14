@@ -27,6 +27,8 @@ The three QQQ bots all use the same signal, so the only difference between them 
 - **Strike** around 0.40-0.60 delta, closest to 0.50.
 - **Limit orders at the mid** of the bid/ask, never market orders. Unfilled orders are canceled and retried. Exits step toward the bid each retry so they can't get stuck.
 - **Exits:** take profit at +75%, stop loss at -45%, close when the signal flips the other way, and close with 5 days left (time decay accelerates).
+- **Confirmed exits:** a take profit or stop loss only fires after it shows on 3 checks in a row (about 15 seconds while the market is open), and quotes that look broken (no ask, crossed, or absurdly wide) are ignored. One bad quote can't close a trade.
+- **Price stop (spread bots):** a two-leg spread's quote is noisy, so the spread bots stop out when the stock itself moves against the trade since entry: 1% for QQQ Spread and SPY Spread, 2% for AMD Spread and News (`price_stop` in `config.py`). Their option-quote stop stays on only as a backstop at -70%.
 - **Earnings (AMD):** no new trades in the 5 days before the report, and any open trade is closed the trading day before.
 - **No trades** in the first and last 15 minutes of the day, or for 30 minutes after closing a trade.
 

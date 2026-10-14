@@ -8,6 +8,12 @@ RULES = {
     "delta_max": 0.60,
     "take_profit": 0.75,    # sell at +75% (inside the +50-100% range)
     "stop_loss": 0.45,      # cut a trade at -45% (inside the -40-50% range)
+    # Take profit / stop loss must show on this many checks in a row (5 seconds apart while
+    # the market is open, so about 15 seconds) before the bot acts. Filters out bad quotes.
+    "confirm_checks": 3,
+    # Bots with a `price_stop` exit on the stock's move instead; the option-quote stop
+    # only acts as a backstop for them, at this wider level.
+    "backstop_loss": 0.70,
     # Hard limit per bot: the most it may ever lose, as a share of its budget.
     # Every trade's cost is capped at the room left above this line, so even a trade
     # that goes to zero can't push the bot past it. At the line the bot stops for good.
@@ -25,27 +31,29 @@ RULES = {
 # risk_pct:   most of its current cash one trade may cost (max loss of that trade),
 #             further capped by the max_loss_pct hard limit above
 # signal:     which direction signal picks calls vs puts (see strategies.py, or "news")
+# price_stop: spreads only: exit when the stock moves this far against the trade since entry
+#             (0.01 = 1%), instead of trusting the spread's noisy two-leg option quote
 # earnings:   date of the next earnings report; the bot is flat that day and
 #             opens nothing in the `blackout_days` before it (IV crush)
 #
 # The three QQQ bots share one signal so the only difference is how they trade it.
 BOTS = [
     {"name": "QQQ Spread", "symbol": "QQQ", "signal": "momentum", "style": "spread",
-     "widths": [5, 3, 2], "budget": 300, "risk_pct": 0.80},
+     "widths": [5, 3, 2], "budget": 300, "risk_pct": 0.80, "price_stop": 0.01},
     {"name": "By the Rules", "symbol": "QQQ", "signal": "momentum", "style": "single",
      "budget": 50000, "risk_pct": 0.03},
     {"name": "$300 Single", "symbol": "QQQ", "signal": "momentum", "style": "single",
      "budget": 300, "risk_pct": 1.00, "min_dte": 7, "delta_min": 0.20,  # bends the rules to fit $300
      "max_loss_pct": 1.00},  # may lose its whole $300, never more
     {"name": "SPY Spread", "symbol": "SPY", "signal": "sma_crossover", "style": "spread",
-     "widths": [5, 3, 2], "budget": 300, "risk_pct": 0.80},
+     "widths": [5, 3, 2], "budget": 300, "risk_pct": 0.80, "price_stop": 0.01},
     {"name": "AMD Spread", "symbol": "AMD", "signal": "mean_reversion", "style": "spread",
-     "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80,
+     "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80, "price_stop": 0.02,
      "earnings": "2026-11-03", "blackout_days": 5},
     # Trades AMD news: buys when Claude rates a headline notable or major AND the price is
     # already moving that way. Needs ANTHROPIC_API_KEY and Alpaca mode (demo mode has no news).
     {"name": "News", "symbol": "AMD", "signal": "news", "style": "spread",
-     "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80,
+     "widths": [5, 2.5], "budget": 300, "risk_pct": 0.80, "price_stop": 0.02,
      "earnings": "2026-11-03", "blackout_days": 5},
 ]
 
