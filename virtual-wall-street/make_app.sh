@@ -52,9 +52,16 @@ URL="http://localhost:8765"
 
 running() { /usr/bin/curl -s -o /dev/null --max-time 1 "$URL/api/state"; }
 
+# Apps without compiled code can get launched in Intel mode (Rosetta) on Apple-chip Macs,
+# and then Python can't load libraries installed for the Apple chip. Force native mode.
+RUN=("$PYTHON")
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then
+  RUN=(/usr/bin/arch -arm64 "$PYTHON")
+fi
+
 if ! running; then
   cd "$GAME_DIR" || exit 1
-  nohup "$PYTHON" city.py --no-browser > city.log 2>&1 &
+  nohup "${RUN[@]}" city.py --no-browser > city.log 2>&1 &
   for i in $(seq 1 60); do
     sleep 0.25
     running && break
@@ -85,6 +92,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSUIElement</key><true/>
+  <key>LSArchitecturePriority</key><array><string>arm64</string><string>x86_64</string></array>
 </dict>
 </plist>
 PLIST
