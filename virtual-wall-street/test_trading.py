@@ -213,6 +213,37 @@ class EngineRuleTests(unittest.TestCase):
         self.assertIsNotNone(self.bot.position)
         self.assertEqual(self.bot.entry_attempts, 0)
 
+    def test_never_sells_a_contract_another_bot_owns(self):
+        # Another bot owns the 505 call; the spread bot's usual pick is 500/505.
+        owner = spread_bot(name="Owner")
+        owner.position = {"kind": "call", "legs": [[CHAIN[3].symbol, "long"]], "qty": 1, "entry_cost": 400,
+                          "expiration": EXP.isoformat(), "label": "505C"}
+        self.market.chain_.append(contract(503, 4.6, 0.44))
+        self.bot.spec["widths"] = [5, 3]
+        engine = Engine(self.market, [owner, self.bot])
+        engine.trade_all()
+        sold = [sym for sym, side in self.bot.position["legs"] if side == "short"]
+        self.assertNotIn(CHAIN[3].symbol, sold)
+        self.assertEqual(self.bot.position["label"], "500/503C 10/30")
+
+    def test_one_bots_failure_does_not_stop_the_others(self):
+        first = spread_bot(name="First")
+        engine = Engine(self.market, [first, self.bot])
+        engine.trade_all()  # both open positions
+        self.market.set_mid(500, 5.0)  # both spreads now -50%: both should stop out
+        real_submit = self.market.submit
+
+        def submit(bot, *args, **kwargs):
+            if bot is first:
+                raise RuntimeError("potential wash trade detected")
+            return real_submit(bot, *args, **kwargs)
+
+        self.market.submit = submit
+        engine.trade_all()
+        self.assertIsNotNone(first.position)          # its exit failed...
+        self.assertIsNone(self.bot.position)          # ...but the second bot still got out
+        self.assertIn("wash trade", engine.trade_error)
+
     def test_no_entries_right_after_open(self):
         self.market.clock = datetime(2026, 10, 13, 9, 35)
         self.engine.trade_all()
@@ -438,10 +469,11 @@ class AlpacaTests(unittest.TestCase):
         self.fake.submit_order = failing_submit
         self.fake.get_order_by_client_id = not_found
         with mock.patch("engine.time.sleep"):
-            with self.assertRaises(TimeoutError):
-                market.step(engine)
+            market.step(engine)
         self.assertIsNone(bot.position)
         self.assertEqual(bot.cash, 300)
+        self.assertIn("TimeoutError", engine.trade_error)
+        self.assertIsNotNone(bot.retry_after, "waits before trying again")
 
     def test_market_closed_places_no_orders(self):
         self.fake.is_open = False

@@ -67,18 +67,19 @@ def round_price(price, underlying):
     return round(round(price / 0.05) * 0.05, 2)
 
 
-def _by_delta(chain, today, delta_min, delta_max):
+def _by_delta(chain, today, delta_min, delta_max, avoid=()):
     """Contracts with |delta| in range and a real two-sided quote, closest to 0.50 delta first."""
-    usable = [c for c in chain if c.bid > 0 and c.ask >= c.bid and delta_min <= abs(c.delta) <= delta_max]
+    usable = [c for c in chain if c.bid > 0 and c.ask >= c.bid and delta_min <= abs(c.delta) <= delta_max
+              and c.symbol not in avoid]
     return sorted(usable, key=lambda c: (abs(abs(c.delta) - 0.5), c.dte(today)))
 
 
-def pick_single(chain, today, delta_min, delta_max, max_cost):
+def pick_single(chain, today, delta_min, delta_max, max_cost, no_buy=()):
     """Best single contract costing at most `max_cost` dollars.
 
     Returns (contract, None) or (None, why_not) where why_not explains the skip.
     """
-    candidates = _by_delta(chain, today, delta_min, delta_max)
+    candidates = _by_delta(chain, today, delta_min, delta_max, no_buy)
     if not candidates:
         return None, "no contract in delta range"
     for c in candidates:
@@ -88,13 +89,13 @@ def pick_single(chain, today, delta_min, delta_max, max_cost):
     return None, f"too pricey (min ${cheapest:,.0f})"
 
 
-def pick_spread(chain, today, delta_min, delta_max, widths, max_cost):
+def pick_spread(chain, today, delta_min, delta_max, widths, max_cost, no_buy=(), no_sell=()):
     """Best debit spread: buy a ~0.50 delta option, sell a further-out one, same expiration.
 
     `widths` are strike distances in dollars to try, widest (most profit potential) first.
     Returns ((long, short), None) or (None, why_not).
     """
-    longs = _by_delta(chain, today, delta_min, delta_max)
+    longs = _by_delta(chain, today, delta_min, delta_max, no_buy)
     if not longs:
         return None, "no contract in delta range"
     cheapest = None
@@ -102,7 +103,7 @@ def pick_spread(chain, today, delta_min, delta_max, widths, max_cost):
         for width in widths:
             target = long.strike + width if long.kind == "call" else long.strike - width
             match = [c for c in chain if c.expiration == long.expiration and c.kind == long.kind
-                     and abs(c.strike - target) < 1e-6 and c.bid > 0]
+                     and abs(c.strike - target) < 1e-6 and c.bid > 0 and c.symbol not in no_sell]
             if not match:
                 continue
             short = match[0]

@@ -45,6 +45,7 @@ class Bot:
         self.cooldown_until = None
         self.exit_attempts = 0
         self.entry_attempts = 0  # unfilled entry tries for the current signal
+        self.retry_after = None  # after a rejected order, wait before trying new entries
         self.flip_since = None  # when the signal started pointing against the open trade
         self.trades = 0
         self.wins = 0
@@ -153,22 +154,33 @@ class Engine(threading.Thread):
     # --- Trading rules, shared by every market ---
 
     def trade_all(self):
+        self.trade_error = ""
         for bot in self.bots:
-            closes = self.market.closes(bot.symbol)
-            if not closes:
-                bot.note = "no price data"
-                continue
-            bot.price = closes[-1]
-            # Every Nth one-minute close, ending with the latest = N-minute bars
-            bars = closes[::-1][::config.SIGNAL_BAR_MINUTES][::-1]
-            if bot.signal_name == "news":
-                signal = self.news.signal(bot.symbol, closes, self.market.now()) if self.news else None
-            else:
-                signal = bot.signal(bars)
-            if bot.position:
-                self.manage_open(bot, signal)
-            else:
-                self.maybe_open(bot, signal)
+            # One bot's problem (a rejected order, a timeout) must never stop the others
+            # from being checked: their stop losses and exits depend on it.
+            try:
+                self.trade_bot(bot)
+            except Exception as e:
+                self.trade_error = f"{bot.name}: {type(e).__name__}: {e}"[:160]
+                bot.note = "order problem, retrying in a few minutes"
+                bot.retry_after = self.market.now() + timedelta(minutes=5)
+
+    def trade_bot(self, bot):
+        closes = self.market.closes(bot.symbol)
+        if not closes:
+            bot.note = "no price data"
+            return
+        bot.price = closes[-1]
+        # Every Nth one-minute close, ending with the latest = N-minute bars
+        bars = closes[::-1][::config.SIGNAL_BAR_MINUTES][::-1]
+        if bot.signal_name == "news":
+            signal = self.news.signal(bot.symbol, closes, self.market.now()) if self.news else None
+        else:
+            signal = bot.signal(bars)
+        if bot.position:
+            self.manage_open(bot, signal)
+        else:
+            self.maybe_open(bot, signal)
 
     def maybe_open(self, bot, signal):
         now = self.market.now()
@@ -185,6 +197,8 @@ class Engine(threading.Thread):
             bot.note = f"STOPPED: hit -{bot.spec['max_loss_pct']:.0%} loss limit"
         elif bot.cooldown_until and now < bot.cooldown_until:
             bot.note = "cooling down"
+        elif bot.retry_after and now < bot.retry_after:
+            pass  # keep the note explaining the last order problem
         elif minutes_in < config.SKIP_OPEN_MINUTES or minutes_left < config.SKIP_CLOSE_MINUTES:
             bot.note = "no entries near open/close"
         elif to_earnings is not None and 0 <= to_earnings <= bot.spec.get("blackout_days", 0):
@@ -203,8 +217,16 @@ class Engine(threading.Thread):
         max_cost = min(bot.cash * s["risk_pct"], bot.loss_room())
         chain = self.market.chain(bot.symbol, kind, s["min_dte"], s["max_dte"], bot.price)
         cp = "C" if kind == "call" else "P"
+        # All bots share one Alpaca account, which nets positions per contract. Never sell a
+        # contract another bot owns, or buy one another bot is short: Alpaca rejects it as a
+        # possible wash trade (and it would quietly change the other bot's position).
+        others_long = {sym for b in self.bots if b is not bot and b.position
+                       for sym, side in b.position["legs"] if side == "long"}
+        others_short = {sym for b in self.bots if b is not bot and b.position
+                        for sym, side in b.position["legs"] if side == "short"}
         if bot.style == "spread":
-            pick, why = pick_spread(chain, today, s["delta_min"], s["delta_max"], s["widths"], max_cost)
+            pick, why = pick_spread(chain, today, s["delta_min"], s["delta_max"], s["widths"], max_cost,
+                                    no_buy=others_short, no_sell=others_long)
             if pick:
                 long, short = pick
                 legs = [[long.symbol, "long"], [short.symbol, "short"]]
@@ -213,7 +235,8 @@ class Engine(threading.Thread):
                 label = f"{long.strike:g}/{short.strike:g}{cp} {long.expiration:%m/%d}"
                 expiration = long.expiration
         else:
-            pick, why = pick_single(chain, today, s["delta_min"], s["delta_max"], max_cost)
+            pick, why = pick_single(chain, today, s["delta_min"], s["delta_max"], max_cost,
+                                    no_buy=others_short)
             if pick:
                 legs = [[pick.symbol, "long"]]
                 unit = pick.mid
