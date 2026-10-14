@@ -36,46 +36,58 @@ case "$GAME_DIR" in
     ;;
 esac
 
-mkdir -p "$APPS"
 rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-# The app: if the game is already running, just open the city. Otherwise start it in
-# the background (no Terminal window), wait for it to come up, then open the city.
-SCRIPT="$(mktemp -t vws)"
-cat > "$SCRIPT" <<EOF
-set gameDir to "$GAME_DIR"
-set py to "$PYTHON"
-set gameURL to "http://localhost:8765"
+# The app is a plain shell script, not an AppleScript applet (those can be silently
+# blocked) and not compiled code, so there is nothing to sign. If the game is already
+# running it just opens the city; otherwise it starts the game in the background
+# (no Terminal window), waits for it to come up, then opens the city.
+{
+  echo '#!/bin/bash'
+  echo "GAME_DIR=\"$GAME_DIR\""
+  echo "PYTHON=\"$PYTHON\""
+  cat <<'LAUNCHER'
+URL="http://localhost:8765"
 
-on isRunning(gameURL)
-	try
-		do shell script "curl -s -o /dev/null --max-time 1 " & gameURL & "/api/state"
-		return true
-	on error
-		return false
-	end try
-end isRunning
+running() { /usr/bin/curl -s -o /dev/null --max-time 1 "$URL/api/state"; }
 
-if not isRunning(gameURL) then
-	do shell script "cd " & quoted form of gameDir & " && nohup " & quoted form of py & " city.py --no-browser > city.log 2>&1 &"
-	set started to false
-	repeat 60 times
-		delay 0.25
-		if isRunning(gameURL) then
-			set started to true
-			exit repeat
-		end if
-	end repeat
-	if not started then
-		set logTail to do shell script "tail -n 15 " & quoted form of (gameDir & "/city.log") & " 2>/dev/null || true"
-		display dialog "Virtual Wall Street didn't start." & return & return & logTail buttons {"OK"} default button 1 with icon caution
-		return
-	end if
-end if
-open location gameURL
-EOF
-osacompile -o "$APP" "$SCRIPT"
-rm -f "$SCRIPT"
+if ! running; then
+  cd "$GAME_DIR" || exit 1
+  nohup "$PYTHON" city.py --no-browser > city.log 2>&1 &
+  for i in $(seq 1 60); do
+    sleep 0.25
+    running && break
+  done
+  if ! running; then
+    details=$(tail -n 12 "$GAME_DIR/city.log" 2>/dev/null | tr '"\\' "''")
+    /usr/bin/osascript -e "display dialog \"Virtual Wall Street didn't start.
+
+$details\" buttons {\"OK\"} with icon caution" >/dev/null
+    exit 1
+  fi
+fi
+/usr/bin/open "$URL"
+LAUNCHER
+} > "$APP/Contents/MacOS/launcher"
+chmod +x "$APP/Contents/MacOS/launcher"
+
+cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Virtual Wall Street</string>
+  <key>CFBundleDisplayName</key><string>Virtual Wall Street</string>
+  <key>CFBundleIdentifier</key><string>local.virtual-wall-street</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>launcher</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>LSUIElement</key><true/>
+</dict>
+</plist>
+PLIST
 
 # App icon from web/icon.png (optional: the app works without it).
 if [ -f "$GAME_DIR/web/icon.png" ] && command -v iconutil >/dev/null; then
@@ -86,17 +98,12 @@ if [ -f "$GAME_DIR/web/icon.png" ] && command -v iconutil >/dev/null; then
     double=$((size * 2))
     sips -z $double $double "$GAME_DIR/web/icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
   done
-  if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/applet.icns"; then
-    touch "$APP"
-  fi
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns" || true
   rm -rf "$(dirname "$ICONSET")"
 fi
 
-# Changing the app after it's built (the icon above) breaks its signature, and Macs
-# with Apple chips silently refuse to open apps with a broken signature. Re-sign it
-# locally ("ad-hoc": no Apple developer account needed) and clear download flags.
 xattr -cr "$APP" 2>/dev/null || true
-codesign --force --deep --sign - "$APP"
+touch "$APP"
 
 echo ""
 echo "Done! \"Virtual Wall Street\" is in $APPS:"
