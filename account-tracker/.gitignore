@@ -1,0 +1,3 @@
+# Backups contain account logins. Never commit them.
+*.json
+*.csv

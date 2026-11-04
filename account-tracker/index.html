@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account Tracker</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #16181d; --muted: #6b7280; --line: #e3e6ea;
+    --accent: #2563eb; --good: #15803d; --bad: #b91c1c; --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --card: #181b21; --text: #e8eaee; --muted: #9aa1ac; --line: #2a2f37;
+            --accent: #60a5fa; --good: #4ade80; --bad: #f87171; --warn: #fbbf24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .card h2 { font-size: 16px; margin: 0 0 12px; }
+  form .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+         border-radius: 8px; padding: 8px 10px; width: 100%; }
+  textarea { min-height: 38px; resize: vertical; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+           border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button.small { padding: 3px 8px; font-size: 13px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar input[type=search] { flex: 1 1 200px; width: auto; }
+  .toolbar select { width: auto; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 900px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .who { font-weight: 600; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .login { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); }
+  .pill.active { color: var(--good); border-color: currentColor; }
+  .pill.settled { color: var(--muted); }
+  .pill.paid { color: var(--accent); border-color: currentColor; }
+  .bal-input { width: 110px; text-align: right; padding: 4px 6px; }
+  .rowbtns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .empty { text-align: center; color: var(--muted); padding: 30px 0; }
+  .note { font-size: 13px; color: var(--warn); }
+  tfoot td { font-weight: 650; border-bottom: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Account Tracker</h1>
+  <p class="sub">Whose account you're on, the login, the balance, and their cut of the profit.</p>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="card">
+    <h2 id="formTitle">Add an account</h2>
+    <form id="form" autocomplete="off">
+      <input type="hidden" id="editId">
+      <div class="grid">
+        <label>Account holder (whose account)
+          <input id="owner" required placeholder="e.g. Mike R.">
+        </label>
+        <label>Sportsbook / site
+          <input id="book" placeholder="e.g. Book A">
+        </label>
+        <label>Login username / email
+          <input id="username" placeholder="username">
+        </label>
+        <label>Login password
+          <input id="password" type="password" placeholder="password" autocomplete="new-password">
+        </label>
+        <label>Starting balance ($)
+          <input id="start" type="number" step="0.01" min="0" required placeholder="0.00">
+        </label>
+        <label>Current / final balance ($)
+          <input id="current" type="number" step="0.01" min="0" placeholder="same as start">
+        </label>
+        <label>Their cut (%)
+          <input id="pct" type="number" step="0.5" min="0" max="100" value="20">
+        </label>
+        <label>Status
+          <select id="status">
+            <option value="active">Active</option>
+            <option value="settled">Settled (final)</option>
+            <option value="paid">Cut paid</option>
+          </select>
+        </label>
+      </div>
+      <label style="margin-top:10px">Notes
+        <textarea id="notes" placeholder="Phone number, payout method, anything else"></textarea>
+      </label>
+      <div class="actions">
+        <button class="primary" type="submit" id="submitBtn">Add account</button>
+        <button type="button" id="cancelEdit" hidden>Cancel</button>
+        <span class="muted" id="preview"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search name, book, username…">
+      <select id="filter">
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="settled">Settled</option>
+        <option value="paid">Cut paid</option>
+      </select>
+      <button type="button" id="exportBtn">Export backup</button>
+      <button type="button" id="importBtn">Import backup</button>
+      <button type="button" id="csvBtn">Export CSV</button>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Account holder</th>
+            <th>Login</th>
+            <th class="num">Starting</th>
+            <th class="num">Current / final</th>
+            <th class="num">Profit</th>
+            <th class="num">Their cut</th>
+            <th class="num">You keep</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+        <tfoot id="foot"></tfoot>
+      </table>
+    </div>
+    <p class="note">Data is saved only in this browser on this device. Logins are stored unencrypted, so keep this device locked, and use "Export backup" regularly. Backup files contain passwords; don't share them.</p>
+  </section>
+</main>
+
+<script>
+(() => {
+  const KEY = 'account-tracker.v1';
+  const $ = id => document.getElementById(id);
+  const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const signed = n => (n > 0 ? '+' : '') + money(n);
+  const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const round2 = n => Math.round(n * 100) / 100;
+
+  let accounts = load();
+  const revealed = new Set();
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(accounts)); }
+    catch { alert('Could not save in this browser. Export a backup so you don\'t lose data.'); }
+  }
+
+  // Core math: profit = current - starting. Their cut applies only to profit (no cut on a loss).
+  function calc(a) {
+    const start = Number(a.start) || 0;
+    const current = Number(a.current ?? a.start) || 0;
+    const pct = Number(a.pct ?? 20) || 0;
+    const profit = round2(current - start);
+    const cut = profit > 0 ? round2(profit * pct / 100) : 0;
+    return { start, current, pct, profit, cut, keep: round2(profit - cut) };
+  }
+
+  function renderStats() {
+    let start = 0, current = 0, profit = 0, cut = 0, keep = 0, owed = 0;
+    for (const a of accounts) {
+      const c = calc(a);
+      start += c.start; current += c.current; profit += c.profit; cut += c.cut; keep += c.keep;
+      if (a.status !== 'paid') owed += c.cut;
+    }
+    const active = accounts.filter(a => a.status === 'active').length;
+    $('stats').innerHTML = [
+      ['Accounts', `${accounts.length} <span class="muted">(${active} active)</span>`],
+      ['Money in accounts', money(current)],
+      ['Total profit', `<span class="${cls(profit)}">${signed(round2(profit))}</span>`],
+      ['Their cuts (total)', money(round2(cut))],
+      ['Cuts still owed', `<span class="${owed > 0 ? 'neg' : ''}">${money(round2(owed))}</span>`],
+      ['You keep', `<span class="${cls(keep)}">${signed(round2(keep))}</span>`],
+    ].map(([l, v]) => `<div class="stat"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+  }
+
+  function renderRows() {
+    const q = $('search').value.trim().toLowerCase();
+    const f = $('filter').value;
+    const list = accounts.filter(a =>
+      (f === 'all' || a.status === f) &&
+      (!q || [a.owner, a.book, a.username, a.notes].some(v => String(v || '').toLowerCase().includes(q)))
+    );
+    if (!list.length) {
+      $('rows').innerHTML = `<tr><td colspan="9" class="empty">${accounts.length ? 'No accounts match.' : 'No accounts yet. Add one above.'}</td></tr>`;
+      $('foot').innerHTML = '';
+      return;
+    }
+    let t = { start: 0, current: 0, profit: 0, cut: 0, keep: 0 };
+    $('rows').innerHTML = list.map(a => {
+      const c = calc(a);
+      for (const k in t) t[k] += c[k];
+      const pw = a.password ? (revealed.has(a.id) ? esc(a.password) : '••••••••') : '<span class="muted">none</span>';
+      return `<tr data-id="${a.id}">
+        <td><div class="who">${esc(a.owner)}</div><div class="muted">${esc(a.book)}</div>${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ''}</td>
+        <td class="login">
+          <div>${esc(a.username) || '<span class="muted">none</span>'} ${a.username ? '<button class="small" data-act="copyUser">Copy</button>' : ''}</div>
+          <div>${pw} ${a.password ? `<button class="small" data-act="toggle">${revealed.has(a.id) ? 'Hide' : 'Show'}</button> <button class="small" data-act="copyPw">Copy</button>` : ''}</div>
+        </td>
+        <td class="num">${money(c.start)}</td>
+        <td class="num"><input class="bal-input" type="number" step="0.01" min="0" value="${c.current}" data-act="balance" title="Update balance"></td>
+        <td class="num ${cls(c.profit)}">${signed(c.profit)}</td>
+        <td class="num">${money(c.cut)}<div class="muted">${c.pct}%</div></td>
+        <td class="num ${cls(c.keep)}">${signed(c.keep)}</td>
+        <td><span class="pill ${a.status}">${{ active: 'Active', settled: 'Settled', paid: 'Cut paid' }[a.status] || a.status}</span></td>
+        <td><div class="rowbtns">
+          ${a.status !== 'paid' ? '<button class="small" data-act="markPaid">Mark paid</button>' : ''}
+          <button class="small" data-act="edit">Edit</button>
+          <button class="small danger" data-act="delete">Delete</button>
+        </div></td>
+      </tr>`;
+    }).join('');
+    $('foot').innerHTML = `<tr><td colspan="2">Totals (${list.length})</td>
+      <td class="num">${money(round2(t.start))}</td><td class="num">${money(round2(t.current))}</td>
+      <td class="num ${cls(t.profit)}">${signed(round2(t.profit))}</td><td class="num">${money(round2(t.cut))}</td>
+      <td class="num ${cls(t.keep)}">${signed(round2(t.keep))}</td><td colspan="2"></td></tr>`;
+  }
+
+  function render() { renderStats(); renderRows(); }
+
+  // Live preview of the math while filling the form
+  function updatePreview() {
+    const start = parseFloat($('start').value);
+    if (isNaN(start)) { $('preview').textContent = ''; return; }
+    const cur = $('current').value === '' ? start : parseFloat($('current').value);
+    const c = calc({ start, current: cur, pct: parseFloat($('pct').value) || 0 });
+    $('preview').textContent = `Profit ${signed(c.profit)} · their cut ${money(c.cut)} · you keep ${signed(c.keep)}`;
+  }
+  ['start', 'current', 'pct'].forEach(id => $(id).addEventListener('input', updatePreview));
+
+  function resetForm() {
+    $('form').reset(); $('editId').value = ''; $('pct').value = 20;
+    $('formTitle').textContent = 'Add an account'; $('submitBtn').textContent = 'Add account';
+    $('cancelEdit').hidden = true; $('preview').textContent = '';
+  }
+
+  $('form').addEventListener('submit', e => {
+    e.preventDefault();
+    const start = parseFloat($('start').value) || 0;
+    const data = {
+      owner: $('owner').value.trim(), book: $('book').value.trim(),
+      username: $('username').value.trim(), password: $('password').value,
+      start, current: $('current').value === '' ? start : parseFloat($('current').value) || 0,
+      pct: $('pct').value === '' ? 20 : parseFloat($('pct').value),
+      status: $('status').value, notes: $('notes').value.trim(),
+    };
+    const id = $('editId').value;
+    if (id) {
+      const a = accounts.find(x => x.id === id);
+      Object.assign(a, data, { updated: Date.now() });
+    } else {
+      accounts.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), created: Date.now(), ...data });
+    }
+    save(); resetForm(); render();
+  });
+  $('cancelEdit').addEventListener('click', resetForm);
+
+  $('rows').addEventListener('click', async e => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const id = btn.closest('tr').dataset.id;
+    const a = accounts.find(x => x.id === id);
+    const act = btn.dataset.act;
+    if (act === 'toggle') { revealed.has(id) ? revealed.delete(id) : revealed.add(id); renderRows(); }
+    else if (act === 'copyUser' || act === 'copyPw') {
+      try { await navigator.clipboard.writeText(act === 'copyUser' ? a.username : a.password);
+            btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); }
+      catch { alert('Copy failed. Use Show and copy it by hand.'); }
+    }
+    else if (act === 'markPaid') { a.status = 'paid'; a.paidAt = Date.now(); save(); render(); }
+    else if (act === 'delete') {
+      if (confirm(`Delete ${a.owner}'s account? This can't be undone.`)) { accounts = accounts.filter(x => x.id !== id); save(); render(); }
+    }
+    else if (act === 'edit') {
+      $('editId').value = a.id; $('owner').value = a.owner; $('book').value = a.book || '';
+      $('username').value = a.username || ''; $('password').value = a.password || '';
+      $('start').value = a.start; $('current').value = a.current; $('pct').value = a.pct;
+      $('status').value = a.status; $('notes').value = a.notes || '';
+      $('formTitle').textContent = `Edit ${a.owner}`; $('submitBtn').textContent = 'Save changes';
+      $('cancelEdit').hidden = false; updatePreview();
+      $('form').scrollIntoView({ behavior: 'smooth' });
+    }
+  });
+
+  // Quick balance update straight from the table
+  $('rows').addEventListener('change', e => {
+    if (e.target.dataset.act !== 'balance') return;
+    const a = accounts.find(x => x.id === e.target.closest('tr').dataset.id);
+    a.current = parseFloat(e.target.value) || 0; a.updated = Date.now();
+    save(); render();
+  });
+
+  $('search').addEventListener('input', renderRows);
+  $('filter').addEventListener('change', renderRows);
+
+  function download(name, text, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const link = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  $('exportBtn').addEventListener('click', () =>
+    download(`account-tracker-backup-${stamp()}.json`, JSON.stringify(accounts, null, 2), 'application/json'));
+
+  $('csvBtn').addEventListener('click', () => {
+    const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['Account holder', 'Sportsbook', 'Username', 'Starting', 'Current/final', 'Profit', 'Cut %', 'Their cut', 'You keep', 'Status', 'Notes'];
+    const lines = accounts.map(a => { const c = calc(a);
+      return [a.owner, a.book, a.username, c.start, c.current, c.profit, c.pct, c.cut, c.keep, a.status, a.notes].map(q).join(','); });
+    download(`account-tracker-${stamp()}.csv`, [head.map(q).join(','), ...lines].join('\n'), 'text/csv'); // passwords left out of CSV
+  });
+
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', async e => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      if (!Array.isArray(data)) throw new Error('not a list');
+      if (!confirm(`Replace your current ${accounts.length} account(s) with ${data.length} from the backup?`)) return;
+      accounts = data; save(); render();
+    } catch { alert('That file isn\'t a valid Account Tracker backup.'); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
