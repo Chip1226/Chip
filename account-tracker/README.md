@@ -24,7 +24,22 @@ The **Profit** tab totals your returns for a period: this month, the last 30 day
 
 Each balance change is saved with a date, so profit counts toward the month it happened in. When you add or edit an account, the **Date of this balance** field lets you backdate an entry (for example, an account you settled last month).
 
-## Install it as an app on your computer
+## Install it as a real app (recommended)
+
+The tracker is published with GitHub Pages at **https://chip1226.github.io/Chip/account-tracker/**. Only the empty app is online. Your accounts and logins are stored in Chrome on your own computer, and nobody who visits the link can see them.
+
+1. Open that link in Chrome.
+2. Open the ⋮ menu (top right), choose **Cast, save, and share**, then **Install page as app…**, then **Install**. On older Chrome versions, use the install icon at the right end of the address bar.
+3. It opens in its own window with its own Dock icon. Right-click that icon and choose **Options → Keep in Dock**.
+
+The installed app works without internet and picks up updates automatically, so you don't need to download it again.
+
+**Moving data from the old version:** in the old window, click **Export backup**. In the new app, click **Import backup** and pick that file.
+
+## Install with the shortcut scripts (older method)
+
+The scripts below open the local file in an app-style Chrome window. On a Mac that window sits under Chrome's Dock icon and doesn't get its own icon.
+
 
 This opens the tracker in its own window, with no browser tabs or address bar, from a Desktop / Start Menu / Applications shortcut. You need Google Chrome or Microsoft Edge (Edge comes with Windows).
 
