@@ -30,7 +30,7 @@ This opens the tracker in its own window, with no browser tabs or address bar, f
 
 1. On GitHub, click **Code → Download ZIP**, then unzip it. Put the `account-tracker` folder somewhere permanent, such as Documents.
 2. **Windows:** double-click `Install (Windows).bat`. If Windows shows "Windows protected your PC", click **More info → Run anyway**. You get an **Account Tracker** shortcut on the Desktop and in the Start Menu. Right-click its taskbar icon and choose **Pin to taskbar**.
-3. **Mac:** right-click `Install (Mac).command` and choose **Open**, then **Open** again (a plain double-click gets blocked because the file was downloaded). It creates **Account Tracker** in the Applications folder in your home folder. While it's open, right-click the Dock icon and choose **Options → Keep in Dock**.
+3. **Mac:** right-click `Install (Mac).command` and choose **Open**, then **Open** again (a plain double-click gets blocked because the file was downloaded). It creates **Account Tracker** in the Applications folder in your home folder and adds it to your Dock. If macOS says the file "Not Opened", click **Done**, then go to **System Settings → Privacy & Security**, click **Open Anyway**, and run it again.
 
 If you move the folder later, run the installer again. Your data is unaffected, because it's stored by the browser rather than in the folder.
 

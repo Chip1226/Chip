@@ -29,8 +29,14 @@ exec open "\$HTML"
 LAUNCH
 chmod +x "$APP/Contents/MacOS/launch"
 
+# Add it to the Dock (once)
+if ! defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "Account%20Tracker.app"; then
+  defaults write com.apple.dock persistent-apps -array-add \
+    "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>$APP</string><key>_CFURLStringType</key><integer>0</integer></dict></dict></dict>"
+  killall Dock
+fi
+
 open "$APP"
 echo
-echo "Done. \"Account Tracker\" is in your Applications folder (in your home folder)."
-echo "Tip: while it's open, right-click its Dock icon > Options > Keep in Dock."
+echo "Done. \"Account Tracker\" is in your Dock and in the Applications folder in your home folder."
 echo "If you move this folder, run this installer again."
