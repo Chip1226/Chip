@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Account Tracker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232563eb'/%3E%3Ctext x='32' y='45' font-size='38' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3E$%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#2563eb">
 <style>
   :root {
     --bg: #f6f7f9; --card: #fff; --text: #16181d; --muted: #6b7280; --line: #e3e6ea;
@@ -57,12 +59,36 @@
   .empty { text-align: center; color: var(--muted); padding: 30px 0; }
   .note { font-size: 13px; color: var(--warn); }
   tfoot td { font-weight: 650; border-bottom: none; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  .tabs button { border: none; background: none; border-radius: 0; padding: 10px 14px; color: var(--muted);
+                 font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+  .periodbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .periodbar select { width: auto; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart .grid line { stroke: var(--line); }
+  .chart .axis text { fill: var(--muted); font-size: 11px; }
+  .chart .bar { cursor: default; }
+  .chart .bar:hover rect.mark { opacity: .8; }
+  .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line);
+         border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+         white-space: nowrap; transform: translate(-50%, -110%); }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+  .two .card table { min-width: 0; }
 </style>
 </head>
 <body>
 <main>
   <h1>Account Tracker</h1>
   <p class="sub">Whose account you're on, the login, the balance, and their cut of the profit.</p>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="accounts" aria-selected="true">Accounts</button>
+    <button role="tab" data-tab="profit" aria-selected="false">Profit</button>
+  </nav>
+
+  <div id="view-accounts">
 
   <section class="stats" id="stats"></section>
 
@@ -98,6 +124,9 @@
             <option value="settled">Settled (final)</option>
             <option value="paid">Cut paid</option>
           </select>
+        </label>
+        <label>Date of this balance
+          <input id="date" type="date">
         </label>
       </div>
       <label style="margin-top:10px">Notes
@@ -146,6 +175,37 @@
     </div>
     <p class="note">Data is saved only in this browser on this device. Logins are stored unencrypted, so keep this device locked, and use "Export backup" regularly. Backup files contain passwords; don't share them.</p>
   </section>
+  </div>
+
+  <div id="view-profit" hidden>
+    <div class="periodbar">
+      <label style="flex-direction:row;align-items:center;gap:8px">Period
+        <select id="period"></select>
+      </label>
+    </div>
+    <section class="stats" id="pstats"></section>
+    <section class="card">
+      <h2 id="chartTitle">Profit by month</h2>
+      <div class="chart" id="chart"></div>
+    </section>
+    <div class="two">
+      <section class="card">
+        <h2 id="breakTitle">Month by month</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th id="breakCol">Month</th><th class="num">Profit</th><th class="num">Their cut</th><th class="num">You keep</th></tr></thead>
+          <tbody id="breakRows"></tbody>
+        </table></div>
+      </section>
+      <section class="card">
+        <h2>By account</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Account holder</th><th class="num">Profit</th><th class="num">Their cut</th><th class="num">You keep</th></tr></thead>
+          <tbody id="acctRows"></tbody>
+        </table></div>
+      </section>
+    </div>
+    <p class="muted">Profit is counted on the date each balance change was entered. Their cut is figured on each account's profit within the period (no cut on a loss).</p>
+  </div>
 </main>
 
 <script>
@@ -162,8 +222,25 @@
   const revealed = new Set();
 
   function load() {
-    try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+    let list;
+    try { list = JSON.parse(localStorage.getItem(KEY)) || []; } catch { list = []; }
+    return migrate(list);
   }
+  // Every change in profit is logged as {t, delta} so profit can be totaled by date.
+  // Sum of deltas always equals current - start.
+  function migrate(list) {
+    for (const a of list) {
+      if (!Array.isArray(a.history)) {
+        const d = round2((Number(a.current ?? a.start) || 0) - (Number(a.start) || 0));
+        a.history = d ? [{ t: a.updated || a.created || Date.now(), delta: d }] : [];
+      }
+    }
+    return list;
+  }
+  const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+  // Entries dated today use the current time; backdated entries use noon of that day.
+  const dateToTime = v => (!v || v === today()) ? Date.now() : new Date(v + 'T12:00:00').getTime();
+  function logDelta(a, delta, t) { delta = round2(delta); if (delta) a.history.push({ t, delta }); }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(accounts)); }
     catch { alert('Could not save in this browser. Export a backup so you don\'t lose data.'); }
@@ -239,7 +316,147 @@
       <td class="num ${cls(t.keep)}">${signed(round2(t.keep))}</td><td colspan="2"></td></tr>`;
   }
 
-  function render() { renderStats(); renderRows(); }
+  function render() { renderStats(); renderRows(); renderProfit(); }
+
+  // ---------- Profit tab ----------
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const yearStart = y => new Date(y, 0, 1).getTime();
+
+  function periodOptions() {
+    const now = new Date(), y = now.getFullYear();
+    const years = new Set([y]);
+    for (const a of accounts) for (const h of a.history) years.add(new Date(h.t).getFullYear());
+    const opts = [
+      ['month', 'This month'], ['30d', 'Last 30 days'], ['year:' + y, `This year (${y})`],
+      ...[...years].filter(v => v !== y).sort((p, q) => q - p).map(v => ['year:' + v, String(v)]),
+      ['all', 'All time'],
+    ];
+    const sel = $('period'), prev = sel.value || 'year:' + y;
+    sel.innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    sel.value = opts.some(o => o[0] === prev) ? prev : 'year:' + y;
+  }
+
+  function periodRange(v) {
+    const now = new Date();
+    if (v === 'month') return { from: new Date(now.getFullYear(), now.getMonth(), 1).getTime(), to: Infinity, chartYear: now.getFullYear() };
+    if (v === '30d') return { from: Date.now() - 30 * 864e5, to: Infinity, chartYear: now.getFullYear() };
+    if (v.startsWith('year:')) { const y = +v.slice(5); return { from: yearStart(y), to: yearStart(y + 1), chartYear: y }; }
+    return { from: -Infinity, to: Infinity, chartYear: null };
+  }
+
+  // Totals for a time window: profit per account inside it, cut on each account's positive profit.
+  function totalsIn(from, to, list = accounts) {
+    let profit = 0, cut = 0, base = 0, winners = 0, losers = 0;
+    const per = [];
+    for (const a of list) {
+      const p = round2(a.history.reduce((s, h) => s + (h.t >= from && h.t < to ? h.delta : 0), 0));
+      if (!p) continue;
+      const c = p > 0 ? round2(p * (Number(a.pct ?? 20) || 0) / 100) : 0;
+      profit += p; cut += c; base += Number(a.start) || 0;
+      p > 0 ? winners++ : losers++;
+      per.push({ a, profit: p, cut: c, keep: round2(p - c) });
+    }
+    return { profit: round2(profit), cut: round2(cut), keep: round2(profit - cut), base, winners, losers, per };
+  }
+
+  function renderProfit() {
+    periodOptions();
+    const v = $('period').value, r = periodRange(v);
+    const T = totalsIn(r.from, r.to);
+    const ret = T.base ? (T.profit / T.base * 100) : 0;
+    const best = T.per.slice().sort((p, q) => q.profit - p.profit)[0];
+    $('pstats').innerHTML = [
+      ['Profit', `<span class="${cls(T.profit)}">${signed(T.profit)}</span>`],
+      ['Their cuts', money(T.cut)],
+      ['You keep', `<span class="${cls(T.keep)}">${signed(T.keep)}</span>`],
+      ['Return on balance', `<span class="${cls(ret)}">${T.base ? (ret > 0 ? '+' : '') + ret.toFixed(1) + '%' : '—'}</span>`],
+      ['Accounts up / down', `${T.winners} <span class="muted">/</span> ${T.losers}`],
+      ['Best account', best && best.profit > 0 ? `${esc(best.a.owner)} <span class="muted">${signed(best.profit)}</span>` : '—'],
+    ].map(([l, val]) => `<div class="stat"><div class="label">${l}</div><div class="value">${val}</div></div>`).join('');
+
+    // Buckets: months of the chosen year, or years for "All time"
+    let buckets;
+    if (r.chartYear != null) {
+      const y = r.chartYear;
+      buckets = MONTHS.map((m, i) => ({ label: m, full: `${m} ${y}`, from: new Date(y, i, 1).getTime(), to: new Date(y, i + 1, 1).getTime() }));
+      $('chartTitle').textContent = `Profit by month, ${y}`; $('breakTitle').textContent = 'Month by month'; $('breakCol').textContent = 'Month';
+    } else {
+      const ys = [...new Set(accounts.flatMap(a => a.history.map(h => new Date(h.t).getFullYear())))].sort();
+      if (!ys.length) ys.push(new Date().getFullYear());
+      buckets = ys.map(y => ({ label: String(y), full: String(y), from: yearStart(y), to: yearStart(y + 1) }));
+      $('chartTitle').textContent = 'Profit by year'; $('breakTitle').textContent = 'Year by year'; $('breakCol').textContent = 'Year';
+    }
+    for (const b of buckets) Object.assign(b, totalsIn(b.from, b.to));
+    drawChart(buckets);
+
+    const nowT = Date.now();
+    $('breakRows').innerHTML = buckets.filter(b => b.from <= nowT).map(b => `<tr>
+      <td>${b.full}</td><td class="num ${cls(b.profit)}">${signed(b.profit)}</td>
+      <td class="num">${money(b.cut)}</td><td class="num ${cls(b.keep)}">${signed(b.keep)}</td></tr>`).join('')
+      + `<tr><td><b>Total</b></td><td class="num ${cls(T.profit)}"><b>${signed(T.profit)}</b></td><td class="num"><b>${money(T.cut)}</b></td><td class="num ${cls(T.keep)}"><b>${signed(T.keep)}</b></td></tr>`;
+
+    $('acctRows').innerHTML = T.per.length ? T.per.sort((p, q) => q.profit - p.profit).map(x => `<tr>
+      <td><div class="who">${esc(x.a.owner)}</div><div class="muted">${esc(x.a.book)}</div></td>
+      <td class="num ${cls(x.profit)}">${signed(x.profit)}</td><td class="num">${money(x.cut)}</td>
+      <td class="num ${cls(x.keep)}">${signed(x.keep)}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">No profit or loss recorded in this period.</td></tr>';
+  }
+
+  function drawChart(buckets) {
+    const W = 760, H = 260, L = 64, R = 8, Tp = 12, B = 26;
+    const vals = buckets.map(b => b.profit);
+    let max = Math.max(0, ...vals), min = Math.min(0, ...vals);
+    if (max === min) max = 100;
+    const step = niceStep((max - min) / 4);
+    max = Math.ceil(max / step) * step; min = Math.floor(min / step) * step;
+    const y = v => Tp + (max - v) / (max - min) * (H - Tp - B);
+    const bw = (W - L - R) / buckets.length, barW = Math.min(36, bw * 0.6);
+    let g = '<g class="grid axis">';
+    for (let v = min; v <= max + 1e-9; v += step) {
+      g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" ${v === 0 ? 'style="stroke:var(--muted)"' : ''}/>
+            <text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${shortMoney(v)}</text>`;
+    }
+    g += '</g>';
+    const bars = buckets.map((b, i) => {
+      const cx = L + bw * i + bw / 2, top = y(Math.max(0, b.profit)), bot = y(Math.min(0, b.profit));
+      const h = Math.max(b.profit ? 1 : 0, bot - top), color = b.profit >= 0 ? 'var(--good)' : 'var(--bad)';
+      const r = Math.min(4, h / 2);
+      // rounded on the data end only, square on the zero line
+      const d = b.profit >= 0
+        ? `M${cx - barW / 2},${bot} V${top + r} q0,-${r} ${r},-${r} H${cx + barW / 2 - r} q${r},0 ${r},${r} V${bot} Z`
+        : `M${cx - barW / 2},${top} V${bot - r} q0,${r} ${r},${r} H${cx + barW / 2 - r} q${r},0 ${r},-${r} V${top} Z`;
+      return `<g class="bar" data-i="${i}">
+        <rect x="${L + bw * i}" y="${Tp}" width="${bw}" height="${H - Tp - B}" fill="transparent"/>
+        ${h ? `<path class="mark" d="${d}" fill="${color}"/>` : ''}
+        <text class="axis" x="${cx}" y="${H - 8}" text-anchor="middle" style="fill:var(--muted);font-size:11px">${b.label}</text>
+      </g>`;
+    }).join('');
+    $('chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${$('chartTitle').textContent}">${g}${bars}</svg><div class="tip" hidden></div>`;
+    const tip = $('chart').querySelector('.tip');
+    $('chart').querySelectorAll('.bar').forEach(el => {
+      el.addEventListener('mousemove', e => {
+        const b = buckets[+el.dataset.i], box = $('chart').getBoundingClientRect();
+        tip.innerHTML = `<b>${b.full}</b><br>Profit <span class="${cls(b.profit)}">${signed(b.profit)}</span><br>Their cut ${money(b.cut)}<br>You keep ${signed(b.keep)}`;
+        tip.style.left = (e.clientX - box.left) + 'px'; tip.style.top = (e.clientY - box.top) + 'px'; tip.hidden = false;
+      });
+      el.addEventListener('mouseleave', () => tip.hidden = true);
+    });
+  }
+  function niceStep(raw) {
+    const p = Math.pow(10, Math.floor(Math.log10(raw || 1))), f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+  }
+  const shortMoney = v => (v < 0 ? '-$' : '$') + (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(Math.abs(v) % 1000 ? 1 : 0) + 'k' : Math.abs(v));
+
+  // ---------- Tabs ----------
+  function showTab(name) {
+    document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    $('view-accounts').hidden = name !== 'accounts';
+    $('view-profit').hidden = name !== 'profit';
+    if (location.hash.slice(1) !== name) history.replaceState(null, '', '#' + name);
+  }
+  document.querySelector('.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
+  $('period').addEventListener('change', renderProfit);
 
   // Live preview of the math while filling the form
   function updatePreview() {
@@ -252,7 +469,7 @@
   ['start', 'current', 'pct'].forEach(id => $(id).addEventListener('input', updatePreview));
 
   function resetForm() {
-    $('form').reset(); $('editId').value = ''; $('pct').value = 20;
+    $('form').reset(); $('editId').value = ''; $('pct').value = 20; $('date').value = today();
     $('formTitle').textContent = 'Add an account'; $('submitBtn').textContent = 'Add account';
     $('cancelEdit').hidden = true; $('preview').textContent = '';
   }
@@ -268,11 +485,15 @@
       status: $('status').value, notes: $('notes').value.trim(),
     };
     const id = $('editId').value;
+    const t = dateToTime($('date').value);
     if (id) {
       const a = accounts.find(x => x.id === id);
+      logDelta(a, (data.current - (Number(a.current) || 0)) - (data.start - (Number(a.start) || 0)), t);
       Object.assign(a, data, { updated: Date.now() });
     } else {
-      accounts.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), created: Date.now(), ...data });
+      const a = { id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), created: t, history: [], ...data };
+      logDelta(a, data.current - data.start, t);
+      accounts.unshift(a);
     }
     save(); resetForm(); render();
   });
@@ -298,7 +519,7 @@
       $('editId').value = a.id; $('owner').value = a.owner; $('book').value = a.book || '';
       $('username').value = a.username || ''; $('password').value = a.password || '';
       $('start').value = a.start; $('current').value = a.current; $('pct').value = a.pct;
-      $('status').value = a.status; $('notes').value = a.notes || '';
+      $('status').value = a.status; $('notes').value = a.notes || ''; $('date').value = today();
       $('formTitle').textContent = `Edit ${a.owner}`; $('submitBtn').textContent = 'Save changes';
       $('cancelEdit').hidden = false; updatePreview();
       $('form').scrollIntoView({ behavior: 'smooth' });
@@ -309,7 +530,9 @@
   $('rows').addEventListener('change', e => {
     if (e.target.dataset.act !== 'balance') return;
     const a = accounts.find(x => x.id === e.target.closest('tr').dataset.id);
-    a.current = parseFloat(e.target.value) || 0; a.updated = Date.now();
+    const next = parseFloat(e.target.value) || 0;
+    logDelta(a, next - (Number(a.current) || 0), Date.now());
+    a.current = next; a.updated = Date.now();
     save(); render();
   });
 
@@ -343,10 +566,12 @@
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data)) throw new Error('not a list');
       if (!confirm(`Replace your current ${accounts.length} account(s) with ${data.length} from the backup?`)) return;
-      accounts = data; save(); render();
+      accounts = migrate(data); save(); render();
     } catch { alert('That file isn\'t a valid Account Tracker backup.'); }
   });
 
+  $('date').value = today();
+  showTab(location.hash === '#profit' ? 'profit' : 'accounts');
   render();
 })();
 </script>

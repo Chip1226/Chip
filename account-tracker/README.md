@@ -14,9 +14,29 @@ For each account it stores:
 
 The cards at the top add it all up: money across all accounts, total profit, total cuts, cuts you still owe (anything not marked "Cut paid"), and what you keep.
 
-## How to use it
+## Profit tab
 
-Open `index.html` in any browser (double-click it, or AirDrop / email it to your phone). It needs no install and no internet.
+The **Profit** tab totals your returns for a period: this month, the last 30 days, this year, any past year, or all time. It shows:
+
+- Profit, their cuts, what you keep, and your return % on the starting balances
+- A month-by-month chart and table (or year by year for "All time")
+- A breakdown by account
+
+Each balance change is saved with a date, so profit counts toward the month it happened in. When you add or edit an account, the **Date of this balance** field lets you backdate an entry (for example, an account you settled last month).
+
+## Install it as an app on your computer
+
+This opens the tracker in its own window, with no browser tabs or address bar, from a Desktop / Start Menu / Applications shortcut. You need Google Chrome or Microsoft Edge (Edge comes with Windows).
+
+1. On GitHub, click **Code → Download ZIP**, then unzip it. Put the `account-tracker` folder somewhere permanent, such as Documents.
+2. **Windows:** double-click `Install (Windows).bat`. If Windows shows "Windows protected your PC", click **More info → Run anyway**. You get an **Account Tracker** shortcut on the Desktop and in the Start Menu. Right-click its taskbar icon and choose **Pin to taskbar**.
+3. **Mac:** right-click `Install (Mac).command` and choose **Open**, then **Open** again (a plain double-click gets blocked because the file was downloaded). It creates **Account Tracker** in the Applications folder in your home folder. While it's open, right-click the Dock icon and choose **Options → Keep in Dock**.
+
+If you move the folder later, run the installer again. Your data is unaffected, because it's stored by the browser rather than in the folder.
+
+## How to use it without installing
+
+Open `index.html` in any browser. It needs no install and no internet.
 
 ## Where your data lives
 
