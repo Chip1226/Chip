@@ -46,4 +46,4 @@ Everything is saved in that browser on that device. Nothing is sent anywhere, an
 - **Import backup** restores from one of those files (it can also move your data to another device).
 - **Export CSV** gives you a spreadsheet without the passwords.
 
-Clearing your browser data deletes the tracker's data, so export backups regularly.
+Clearing your browser data deletes the tracker's data, so export backups regularly. The app reminds you once a month: if it's been 30 days since your last backup, a banner at the top offers **Back up now** or **Remind me in 3 days**. Your last backup date is shown next to the Export backup button.

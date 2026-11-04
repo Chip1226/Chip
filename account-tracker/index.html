@@ -16,6 +16,7 @@
             --accent: #60a5fa; --good: #4ade80; --bad: #f87171; --warn: #fbbf24; }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
@@ -58,6 +59,9 @@
   .rowbtns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
   .empty { text-align: center; color: var(--muted); padding: 30px 0; }
   .note { font-size: 13px; color: var(--warn); }
+  .banner { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--card);
+            border: 1px solid var(--warn); border-left-width: 4px; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+  .banner .msg { flex: 1 1 260px; }
   tfoot td { font-weight: 650; border-bottom: none; }
   .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
   .tabs button { border: none; background: none; border-radius: 0; padding: 10px 14px; color: var(--muted);
@@ -82,6 +86,12 @@
 <main>
   <h1>Account Tracker</h1>
   <p class="sub">Whose account you're on, the login, the balance, and their cut of the profit.</p>
+
+  <div class="banner" id="backupBanner" hidden role="status">
+    <div class="msg"><b>Time for your monthly backup.</b> <span class="muted" id="backupAge"></span></div>
+    <button class="primary" type="button" id="bannerBackup">Back up now</button>
+    <button type="button" id="bannerLater">Remind me in 3 days</button>
+  </div>
 
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="accounts" aria-selected="true">Accounts</button>
@@ -152,6 +162,7 @@
       <button type="button" id="exportBtn">Export backup</button>
       <button type="button" id="importBtn">Import backup</button>
       <button type="button" id="csvBtn">Export CSV</button>
+      <span class="muted" id="lastBackup"></span>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
     <div class="table-wrap">
@@ -547,8 +558,34 @@
   }
   const stamp = () => new Date().toISOString().slice(0, 10);
 
-  $('exportBtn').addEventListener('click', () =>
-    download(`account-tracker-backup-${stamp()}.json`, JSON.stringify(accounts, null, 2), 'application/json'));
+  // ---------- Monthly backup reminder ----------
+  const META = 'account-tracker.meta';
+  const MONTH = 30 * 864e5;
+  function getMeta() { try { return JSON.parse(localStorage.getItem(META)) || {}; } catch { return {}; } }
+  function setMeta(patch) { try { localStorage.setItem(META, JSON.stringify({ ...getMeta(), ...patch })); } catch {} }
+  if (!getMeta().firstUse) setMeta({ firstUse: Date.now() });
+
+  function renderBackupReminder() {
+    const m = getMeta(), now = Date.now();
+    const fmt = t => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    $('lastBackup').textContent = m.lastBackup ? `Last backup: ${fmt(m.lastBackup)}` : 'Never backed up';
+    const due = accounts.length > 0
+      && now - (m.lastBackup || m.firstUse) >= MONTH
+      && !(m.snoozeUntil > now);
+    $('backupBanner').hidden = !due;
+    if (due) $('backupAge').textContent = m.lastBackup
+      ? `Your last backup was ${Math.floor((now - m.lastBackup) / 864e5)} days ago (${fmt(m.lastBackup)}).`
+      : "You haven't backed up yet.";
+  }
+
+  function exportBackup() {
+    download(`account-tracker-backup-${stamp()}.json`, JSON.stringify(accounts, null, 2), 'application/json');
+    setMeta({ lastBackup: Date.now(), snoozeUntil: 0 });
+    renderBackupReminder();
+  }
+  $('exportBtn').addEventListener('click', exportBackup);
+  $('bannerBackup').addEventListener('click', exportBackup);
+  $('bannerLater').addEventListener('click', () => { setMeta({ snoozeUntil: Date.now() + 3 * 864e5 }); renderBackupReminder(); });
 
   $('csvBtn').addEventListener('click', () => {
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -573,6 +610,8 @@
   $('date').value = today();
   showTab(location.hash === '#profit' ? 'profit' : 'accounts');
   render();
+  renderBackupReminder();
+  setInterval(renderBackupReminder, 6 * 3600e3); // re-check if the window stays open for days
 })();
 </script>
 </body>
