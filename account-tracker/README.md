@@ -8,6 +8,7 @@ For each account it stores:
 - **Login**: username and password, hidden until you click Show, with copy buttons
 - **Starting balance**: what was in the account when you started
 - **Current / final balance**: update it from the table as you go
+- **Close out**: zeroes the account out (it shows $0 with the amount paid out to you). Its profit or loss stays in your totals: a win adds to your profit, a loss subtracts from it.
 - **Profit**: current minus starting
 - **Their cut**: 20% of the profit by default (you can change the % per account). If the account is down, the cut is $0.
 - **You keep**: profit minus their cut

@@ -53,7 +53,7 @@
   .who { font-weight: 600; }
   .muted { color: var(--muted); font-size: 13px; }
   .login { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
-  .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); }
+  .pill { white-space: nowrap; display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); }
   .pill.active { color: var(--good); border-color: currentColor; }
   .pill.settled { color: var(--muted); }
   .pill.paid { color: var(--accent); border-color: currentColor; }
@@ -304,7 +304,8 @@
     let t = { start: 0, current: 0, profit: 0, cut: 0, keep: 0 };
     $('rows').innerHTML = list.map(a => {
       const c = calc(a);
-      for (const k in t) t[k] += c[k];
+      const open = a.status === 'active';
+      for (const k in t) t[k] += (k === 'current' && !open) ? 0 : c[k]; // closed accounts hold $0
       const pw = a.password ? (revealed.has(a.id) ? esc(a.password) : '••••••••') : '<span class="muted">none</span>';
       return `<tr data-id="${a.id}">
         <td><div class="who">${esc(a.owner)}</div><div class="muted">${esc(a.book)}</div>${a.notes ? `<div class="muted">${esc(a.notes)}</div>` : ''}</td>
@@ -313,7 +314,9 @@
           <div>${pw} ${a.password ? `<button class="small" data-act="toggle">${revealed.has(a.id) ? 'Hide' : 'Show'}</button> <button class="small" data-act="copyPw">Copy</button>` : ''}</div>
         </td>
         <td class="num">${money(c.start)}</td>
-        <td class="num"><input class="bal-input" type="number" step="0.01" min="0" value="${c.current}" data-act="balance" title="Update balance"></td>
+        <td class="num">${open
+          ? `<input class="bal-input" type="number" step="0.01" min="0" value="${c.current}" data-act="balance" title="Update balance">`
+          : `${money(0)}<div class="muted">paid out ${money(c.current)}</div>`}</td>
         <td class="num ${cls(c.profit)}">${signed(c.profit)}</td>
         <td class="num">${money(c.cut)}<div class="muted">${c.pct}%</div></td>
         <td class="num ${cls(c.keep)}">${signed(c.keep)}</td>
