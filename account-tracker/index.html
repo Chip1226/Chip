@@ -273,13 +273,16 @@
     let start = 0, current = 0, profit = 0, cut = 0, keep = 0, owed = 0;
     for (const a of accounts) {
       const c = calc(a);
-      start += c.start; current += c.current; profit += c.profit; cut += c.cut; keep += c.keep;
+      // Closed-out winners: your starting money has come back out, so only the profit still counts here.
+      const closedWinner = a.status !== 'active' && c.profit > 0;
+      start += c.start; current += closedWinner ? c.current - c.start : c.current;
+      profit += c.profit; cut += c.cut; keep += c.keep;
       if (a.status !== 'paid') owed += c.cut;
     }
     const active = accounts.filter(a => a.status === 'active').length;
     $('stats').innerHTML = [
       ['Accounts', `${accounts.length} <span class="muted">(${active} active)</span>`],
-      ['Money in accounts', money(current)],
+      ['Money in accounts', money(round2(current))],
       ['Total profit', `<span class="${cls(profit)}">${signed(round2(profit))}</span>`],
       ['Their cuts (total)', money(round2(cut))],
       ['Cuts still owed', `<span class="${owed > 0 ? 'neg' : ''}">${money(round2(owed))}</span>`],
