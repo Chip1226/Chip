@@ -133,7 +133,7 @@
         <label>Status
           <select id="status">
             <option value="active">Active</option>
-            <option value="settled">Settled (final)</option>
+            <option value="settled">Closed out</option>
             <option value="paid">Cut paid</option>
           </select>
         </label>
@@ -158,7 +158,7 @@
       <select id="filter">
         <option value="all">All statuses</option>
         <option value="active">Active</option>
-        <option value="settled">Settled</option>
+        <option value="settled">Closed out</option>
         <option value="paid">Cut paid</option>
       </select>
       <button type="button" id="exportBtn">Export backup</button>
@@ -273,9 +273,8 @@
     let start = 0, current = 0, profit = 0, cut = 0, keep = 0, owed = 0;
     for (const a of accounts) {
       const c = calc(a);
-      // Closed-out winners: your starting money has come back out, so only the profit still counts here.
-      const closedWinner = a.status !== 'active' && c.profit > 0;
-      start += c.start; current += closedWinner ? c.current - c.start : c.current;
+      // Closed-out accounts have been paid back to you, so nothing is left in them.
+      start += c.start; if (a.status === 'active') current += c.current;
       profit += c.profit; cut += c.cut; keep += c.keep;
       if (a.status !== 'paid') owed += c.cut;
     }
@@ -318,8 +317,9 @@
         <td class="num ${cls(c.profit)}">${signed(c.profit)}</td>
         <td class="num">${money(c.cut)}<div class="muted">${c.pct}%</div></td>
         <td class="num ${cls(c.keep)}">${signed(c.keep)}</td>
-        <td><span class="pill ${a.status}">${{ active: 'Active', settled: 'Settled', paid: 'Cut paid' }[a.status] || a.status}</span></td>
+        <td><span class="pill ${a.status}">${{ active: 'Active', settled: 'Closed out', paid: 'Cut paid' }[a.status] || a.status}</span></td>
         <td><div class="rowbtns">
+          ${a.status === 'active' ? '<button class="small" data-act="closeOut">Close out</button>' : ''}
           ${a.status !== 'paid' ? '<button class="small" data-act="markPaid">Mark paid</button>' : ''}
           <button class="small" data-act="edit">Edit</button>
           <button class="small danger" data-act="delete">Delete</button>
@@ -526,6 +526,11 @@
       try { await navigator.clipboard.writeText(act === 'copyUser' ? a.username : a.password);
             btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); }
       catch { alert('Copy failed. Use Show and copy it by hand.'); }
+    }
+    else if (act === 'closeOut') {
+      if (confirm(`Close out ${a.owner}'s account at ${money(calc(a).current)}? It will no longer count toward Money in accounts.`)) {
+        a.status = 'settled'; a.closedAt = Date.now(); save(); render();
+      }
     }
     else if (act === 'markPaid') { a.status = 'paid'; a.paidAt = Date.now(); save(); render(); }
     else if (act === 'delete') {

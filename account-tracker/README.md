@@ -12,7 +12,7 @@ For each account it stores:
 - **Their cut**: 20% of the profit by default (you can change the % per account). If the account is down, the cut is $0.
 - **You keep**: profit minus their cut
 
-The cards at the top add it all up: money across all accounts (once an account is closed out as Settled or Cut paid with a profit, its starting amount is taken out of this total and only the profit counts), total profit, total cuts, cuts you still owe (anything not marked "Cut paid"), and what you keep.
+The cards at the top add it all up: money across all accounts (only active accounts count; when you click **Close out**, or mark the cut paid, the money has been paid back to you, so that account drops out of this total), total profit, total cuts, cuts you still owe (anything not marked "Cut paid"), and what you keep.
 
 ## Profit tab
 
